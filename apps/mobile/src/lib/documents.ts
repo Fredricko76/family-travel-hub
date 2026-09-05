@@ -1,9 +1,17 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
+import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import type { ExtractedItem, ExtractResponse, ItineraryDay, Trip, TripDocument } from '../types';
 
 const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+type PickedFile = {
+  name: string;
+  mime: string;
+  size: number | null;
+  bytes: () => Promise<Uint8Array>;
+};
 
 function extensionFor(name: string | undefined, mime: string | undefined) {
   const fromName = name?.includes('.') ? name.split('.').pop() : undefined;
@@ -14,20 +22,64 @@ function extensionFor(name: string | undefined, mime: string | undefined) {
   return 'jpg';
 }
 
-/**
- * Let the user pick a PDF or image, upload it under the trip, and record it.
- * Returns null if the picker was cancelled.
- */
-export async function pickAndUploadDocument(trip: Trip): Promise<TripDocument | null> {
+/** Native: the system document picker, read back through expo-file-system. */
+async function pickFileNative(): Promise<PickedFile | null> {
   const picked = await DocumentPicker.getDocumentAsync({
     type: ACCEPTED_TYPES,
     copyToCacheDirectory: true,
     multiple: false,
   });
   if (picked.canceled || !picked.assets?.length) return null;
-
   const asset = picked.assets[0];
-  const mime = asset.mimeType ?? 'application/pdf';
+  const file = new File(asset.uri);
+  return {
+    name: asset.name,
+    mime: asset.mimeType ?? 'application/pdf',
+    size: asset.size ?? null,
+    bytes: () => file.bytes(),
+  };
+}
+
+/**
+ * Web: our own hidden <input type="file">. The library version dispatches a
+ * synthetic click, which mobile Safari ignores; a real element.click() inside
+ * the tap handler opens the chooser on every browser.
+ */
+function pickFileWeb(): Promise<PickedFile | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = ACCEPTED_TYPES.join(',');
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    const finish = (value: PickedFile | null) => {
+      input.remove();
+      resolve(value);
+    };
+    input.addEventListener('change', () => {
+      const chosen = input.files?.[0];
+      if (!chosen) return finish(null);
+      finish({
+        name: chosen.name,
+        mime: chosen.type || 'application/pdf',
+        size: chosen.size,
+        bytes: async () => new Uint8Array(await chosen.arrayBuffer()),
+      });
+    });
+    input.addEventListener('cancel', () => finish(null));
+    input.click();
+  });
+}
+
+/**
+ * Let the user pick a PDF or image, upload it under the trip, and record it.
+ * Returns null if the picker was cancelled.
+ */
+export async function pickAndUploadDocument(trip: Trip): Promise<TripDocument | null> {
+  const picked = Platform.OS === 'web' ? await pickFileWeb() : await pickFileNative();
+  if (!picked) return null;
+
+  const mime = picked.mime;
   if (!ACCEPTED_TYPES.includes(mime)) {
     throw new Error('Please choose a PDF, JPEG, PNG or WebP file.');
   }
@@ -42,9 +94,9 @@ export async function pickAndUploadDocument(trip: Trip): Promise<TripDocument | 
     .insert({
       trip_id: trip.id,
       uploaded_by: userId,
-      original_name: asset.name,
+      original_name: picked.name,
       mime_type: mime,
-      size_bytes: asset.size ?? null,
+      size_bytes: picked.size,
       status: 'uploading',
     })
     .select()
@@ -52,9 +104,8 @@ export async function pickAndUploadDocument(trip: Trip): Promise<TripDocument | 
   if (insertError || !doc) throw insertError ?? new Error('Could not record the document.');
 
   // 2. Upload the bytes to the private bucket.
-  const file = new File(asset.uri);
-  const bytes = await file.bytes();
-  const storagePath = `${trip.id}/${doc.id}.${extensionFor(asset.name, mime)}`;
+  const bytes = await picked.bytes();
+  const storagePath = `${trip.id}/${doc.id}.${extensionFor(picked.name, mime)}`;
   const { error: uploadError } = await supabase.storage
     .from('documents')
     .upload(storagePath, bytes, { contentType: mime, upsert: false });
