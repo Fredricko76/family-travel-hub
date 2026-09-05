@@ -93,7 +93,16 @@ Deno.serve(async (req) => {
       throw new Error(`Unsupported file type ${mime}. Upload a PDF, JPEG, PNG or WebP.`);
     }
 
-    const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!apiKey) {
+      // Name-only hint so a mis-typed secret is easy to spot; values are never logged.
+      const similar = Object.keys(Deno.env.toObject()).filter((k) => /ANTHROPIC|CLAUDE/i.test(k));
+      throw new Error(
+        `The ANTHROPIC_API_KEY secret is not set on this function.` +
+          (similar.length ? ` Secrets with similar names: ${similar.join(", ")}.` : ""),
+      );
+    }
+    const anthropic = new Anthropic({ apiKey });
 
     // Structured outputs make the reply match extractionSchema exactly.
     // `fallbacks: "default"` re-runs on another model if a safety classifier
