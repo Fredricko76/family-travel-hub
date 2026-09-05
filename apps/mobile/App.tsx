@@ -8,10 +8,12 @@ import { TripsScreen } from './src/screens/TripsScreen';
 import { TripScreen } from './src/screens/TripScreen';
 import { colors } from './src/theme';
 import type { Trip } from './src/types';
+import { demoTrip } from './src/demo';
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [preview, setPreview] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -29,8 +31,10 @@ export default function App() {
         <ActivityIndicator color={colors.accent} />
       </View>
     );
+  } else if (!session && preview) {
+    screen = <TripScreen trip={demoTrip} demo onBack={() => setPreview(false)} />;
   } else if (!session) {
-    screen = <SignInScreen />;
+    screen = <SignInScreen onPreview={() => setPreview(true)} />;
   } else if (trip) {
     screen = <TripScreen trip={trip} onBack={() => setTrip(null)} />;
   } else {

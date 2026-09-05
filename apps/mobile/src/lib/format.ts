@@ -27,8 +27,18 @@ export function formatDayHeading(yyyyMmDd: string): string {
   }).format(date);
 }
 
+// Zones whose IANA city name is not what a traveller calls the place.
+const ZONE_ALIASES: Record<string, string> = {
+  'Asia/Makassar': 'Bali',
+  'Asia/Jakarta': 'Jakarta',
+  'Pacific/Auckland': 'NZ',
+  'Asia/Ho_Chi_Minh': 'Vietnam',
+  'Asia/Kolkata': 'India',
+};
+
 export function shortZone(tz: string | null): string {
   if (!tz) return '';
+  if (ZONE_ALIASES[tz]) return ZONE_ALIASES[tz];
   const city = tz.split('/').pop() ?? tz;
   return city.replace(/_/g, ' ');
 }

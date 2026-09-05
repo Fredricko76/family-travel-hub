@@ -4,7 +4,9 @@ import { supabase } from '../lib/supabase';
 import { Button, Field, Notice } from '../components/ui';
 import { colors, spacing } from '../theme';
 
-export function SignInScreen() {
+type Props = { onPreview: () => void };
+
+export function SignInScreen({ onPreview }: Props) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -80,6 +82,8 @@ export function SignInScreen() {
               setMessage(null);
             }}
           />
+          <Text style={styles.or}>or</Text>
+          <Button title="Look around with sample data" variant="secondary" onPress={onPreview} />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -93,4 +97,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: '700', color: colors.ink, letterSpacing: -0.5 },
   lede: { fontSize: 16, color: colors.ink2, marginBottom: spacing.lg },
   form: { gap: spacing.md },
+  or: { textAlign: 'center', color: colors.ink3, fontSize: 13 },
 });

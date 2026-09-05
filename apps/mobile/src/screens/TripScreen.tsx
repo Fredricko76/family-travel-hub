@@ -7,8 +7,9 @@ import { colors, spacing } from '../theme';
 import type { ExtractedItem, Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from '../types';
 import { acceptItems, declineDocument, extractDocument, pickAndUploadDocument } from '../lib/documents';
 import { formatDayHeading, formatTime, KIND_LABEL, shortZone } from '../lib/format';
+import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 
-type Props = { trip: Trip; onBack: () => void };
+type Props = { trip: Trip; onBack: () => void; demo?: boolean };
 
 type Review = { document: TripDocument; extraction: Extraction };
 
@@ -21,16 +22,17 @@ const STATUS_LABEL: Record<TripDocument['status'], { text: string; tone: 'neutra
   failed: { text: 'Failed', tone: 'danger' },
 };
 
-export function TripScreen({ trip, onBack }: Props) {
-  const [days, setDays] = useState<ItineraryDay[]>([]);
-  const [items, setItems] = useState<ItineraryItem[]>([]);
-  const [documents, setDocuments] = useState<TripDocument[]>([]);
-  const [loading, setLoading] = useState(true);
+export function TripScreen({ trip, onBack, demo = false }: Props) {
+  const [days, setDays] = useState<ItineraryDay[]>(demo ? demoDays : []);
+  const [items, setItems] = useState<ItineraryItem[]>(demo ? demoItems : []);
+  const [documents, setDocuments] = useState<TripDocument[]>(demo ? demoDocuments : []);
+  const [loading, setLoading] = useState(!demo);
   const [working, setWorking] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (demo) return;
     setLoading(true);
     const [daysRes, itemsRes, docsRes] = await Promise.all([
       supabase.from('itinerary_days').select('*').eq('trip_id', trip.id).order('day_date'),
@@ -43,7 +45,7 @@ export function TripScreen({ trip, onBack }: Props) {
     setItems((itemsRes.data ?? []) as ItineraryItem[]);
     setDocuments((docsRes.data ?? []) as TripDocument[]);
     setLoading(false);
-  }, [trip.id]);
+  }, [trip.id, demo]);
 
   useEffect(() => {
     load();
@@ -51,6 +53,7 @@ export function TripScreen({ trip, onBack }: Props) {
 
   // Live updates: any change to this trip's items or documents refreshes the screen.
   useEffect(() => {
+    if (demo) return;
     const channel = supabase
       .channel(`trip-${trip.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'itinerary_items', filter: `trip_id=eq.${trip.id}` }, () => load())
@@ -59,7 +62,12 @@ export function TripScreen({ trip, onBack }: Props) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [trip.id, load]);
+  }, [trip.id, load, demo]);
+
+  // In the sample-data preview every action stays on the device.
+  function openDemoReview() {
+    setReview({ document: demoDocuments[1], extraction: demoExtraction });
+  }
 
   const itemsByDay = useMemo(() => {
     const map = new Map<string, ItineraryItem[]>();
@@ -68,11 +76,24 @@ export function TripScreen({ trip, onBack }: Props) {
       list.push(item);
       map.set(item.day_id, list);
     }
+    // Timed items in start order, untimed items after them in their manual order.
+    for (const list of map.values()) {
+      list.sort((a, b) => {
+        if (a.starts_at && b.starts_at) return a.starts_at.localeCompare(b.starts_at);
+        if (a.starts_at) return -1;
+        if (b.starts_at) return 1;
+        return a.sort_order - b.sort_order;
+      });
+    }
     return map;
   }, [items]);
 
   async function uploadAndExtract() {
     setError(null);
+    if (demo) {
+      openDemoReview();
+      return;
+    }
     setWorking('upload');
     let doc: TripDocument | null = null;
     try {
@@ -92,6 +113,10 @@ export function TripScreen({ trip, onBack }: Props) {
 
   async function retryExtraction(doc: TripDocument) {
     setError(null);
+    if (demo) {
+      openDemoReview();
+      return;
+    }
     setWorking('extract');
     try {
       const response = await extractDocument(doc.id);
@@ -106,6 +131,10 @@ export function TripScreen({ trip, onBack }: Props) {
 
   async function reopenReview(doc: TripDocument) {
     setError(null);
+    if (demo) {
+      openDemoReview();
+      return;
+    }
     const { data, error: loadError } = await supabase
       .from('extractions')
       .select('result, warnings')
@@ -123,6 +152,31 @@ export function TripScreen({ trip, onBack }: Props) {
 
   async function accept(chosen: ExtractedItem[]) {
     if (!review) return;
+    if (demo) {
+      const added: ItineraryItem[] = chosen.map((item, index) => {
+        const date = item.starts_local?.slice(0, 10);
+        const target = days.find((d) => d.day_date === date) ?? days[0];
+        return {
+          id: `demo-added-${Date.now()}-${index}`,
+          trip_id: trip.id,
+          day_id: target.id,
+          kind: item.kind,
+          title: item.title,
+          starts_at: item.starts_local ? new Date(item.starts_local).toISOString() : null,
+          starts_tz: item.starts_tz,
+          ends_at: item.ends_local ? new Date(item.ends_local).toISOString() : null,
+          ends_tz: item.ends_tz,
+          location: item.location,
+          notes: item.notes,
+          sort_order: 100 + index,
+          document_id: review.document.id,
+        };
+      });
+      setItems((prev) => [...prev, ...added]);
+      setDocuments((prev) => prev.map((d) => (d.id === review.document.id ? { ...d, status: 'accepted' } : d)));
+      setReview(null);
+      return;
+    }
     setWorking('accept');
     try {
       await acceptItems(trip, review.document.id, chosen, days);
@@ -137,6 +191,11 @@ export function TripScreen({ trip, onBack }: Props) {
 
   async function decline() {
     if (!review) return;
+    if (demo) {
+      setDocuments((prev) => prev.map((d) => (d.id === review.document.id ? { ...d, status: 'declined' } : d)));
+      setReview(null);
+      return;
+    }
     setWorking('decline');
     try {
       await declineDocument(review.document.id);
@@ -151,13 +210,14 @@ export function TripScreen({ trip, onBack }: Props) {
 
   return (
     <ScrollView
-      style={styles.flex}
+      style={styles.screen}
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
     >
       <Pressable onPress={onBack} accessibilityRole="button">
-        <Text style={styles.link}>‹ All trips</Text>
+        <Text style={styles.link}>{demo ? '‹ Back to sign in' : '‹ All trips'}</Text>
       </Pressable>
+      {demo && <Notice text="Sample data. Nothing here is saved. Sign in to plan a real trip." tone="accent" />}
       <Text style={styles.eyebrow}>{trip.destination?.toUpperCase() ?? 'TRIP'}</Text>
       <Text style={styles.title}>{trip.name}</Text>
       <Text style={styles.meta}>
@@ -241,7 +301,8 @@ export function TripScreen({ trip, onBack }: Props) {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
+  screen: { flex: 1, backgroundColor: colors.bg },
   container: { padding: spacing.lg, paddingTop: 64, paddingBottom: 64, gap: spacing.md },
   link: { color: colors.accent, fontWeight: '600' },
   eyebrow: { color: colors.accent, fontWeight: '700', letterSpacing: 2, fontSize: 12 },
