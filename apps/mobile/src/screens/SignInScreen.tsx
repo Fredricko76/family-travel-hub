@@ -64,7 +64,7 @@ export function SignInScreen({ onPreview }: Props) {
             label="Password"
             value={password}
             onChangeText={setPassword}
-            placeholder="At least 8 characters"
+            placeholder={mode === 'signup' ? 'At least 6 characters' : 'Your password'}
             secureTextEntry
             autoComplete={mode === 'signup' ? 'new-password' : 'password'}
           />
@@ -73,7 +73,7 @@ export function SignInScreen({ onPreview }: Props) {
             title={mode === 'signin' ? 'Sign in' : 'Create account'}
             onPress={submit}
             loading={busy}
-            disabled={!email || password.length < 8}
+            disabled={!email.trim() || (mode === 'signup' ? password.length < 6 : password.length === 0)}
           />
           <Button
             title={mode === 'signin' ? 'New here? Create an account' : 'Already have an account? Sign in'}
