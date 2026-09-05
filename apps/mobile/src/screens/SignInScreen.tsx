@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { supabase } from '../lib/supabase';
 import { Button, Field, Notice } from '../components/ui';
 import { colors, spacing } from '../theme';
+import { errorMessage } from '../lib/errors';
 
 type Props = { onPreview: () => void };
 
@@ -33,7 +34,7 @@ export function SignInScreen({ onPreview }: Props) {
         if (error) throw error;
       }
     } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : 'Something went wrong.', tone: 'danger' });
+      setMessage({ text: errorMessage(err), tone: 'danger' });
     } finally {
       setBusy(false);
     }

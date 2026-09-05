@@ -5,6 +5,7 @@ import { Button, Field, Notice } from '../components/ui';
 import { colors, spacing } from '../theme';
 import type { Trip } from '../types';
 import { formatDayHeading } from '../lib/format';
+import { errorMessage } from '../lib/errors';
 
 type Props = { onOpenTrip: (trip: Trip) => void };
 
@@ -66,7 +67,7 @@ export function TripsScreen({ onOpenTrip }: Props) {
       await load();
       onOpenTrip(data as Trip);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create the trip.');
+      setError(errorMessage(err, 'Could not create the trip.'));
     } finally {
       setCreating(false);
     }

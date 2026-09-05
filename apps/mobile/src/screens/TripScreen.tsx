@@ -8,6 +8,7 @@ import type { ExtractedItem, Extraction, ItineraryDay, ItineraryItem, Trip, Trip
 import { acceptItems, declineDocument, extractDocument, pickAndUploadDocument } from '../lib/documents';
 import { formatDayHeading, formatTime, KIND_LABEL, shortZone } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
+import { errorMessage } from '../lib/errors';
 
 type Props = { trip: Trip; onBack: () => void; demo?: boolean };
 
@@ -104,7 +105,7 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
       const response = await extractDocument(doc.id);
       setReview({ document: doc, extraction: response.result });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      setError(errorMessage(err, 'Upload failed.'));
     } finally {
       setWorking(null);
       await load();
@@ -122,7 +123,7 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
       const response = await extractDocument(doc.id);
       setReview({ document: doc, extraction: response.result });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Extraction failed.');
+      setError(errorMessage(err, 'Extraction failed.'));
     } finally {
       setWorking(null);
       await load();
@@ -182,7 +183,7 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
       await acceptItems(trip, review.document.id, chosen, days);
       setReview(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add items.');
+      setError(errorMessage(err, 'Could not add items.'));
     } finally {
       setWorking(null);
       await load();
@@ -201,7 +202,7 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
       await declineDocument(review.document.id);
       setReview(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not discard.');
+      setError(errorMessage(err, 'Could not discard.'));
     } finally {
       setWorking(null);
       await load();
