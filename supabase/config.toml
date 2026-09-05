@@ -1,0 +1,7 @@
+# Supabase CLI configuration for the Family Travel Hub spike.
+# Run `supabase link --project-ref <ref>` to attach this to a hosted project.
+project_id = "rcjmutmefhbkajkovovt"
+
+[functions.extract-document]
+# The platform verifies the caller's JWT before the function runs.
+verify_jwt = true

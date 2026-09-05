@@ -1,0 +1,19 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Supabase local
+supabase/.branches
+supabase/.temp
+supabase/.env
+
+# OS
+.DS_Store
+Thumbs.db
