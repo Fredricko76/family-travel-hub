@@ -202,12 +202,20 @@ export async function acceptItems(
   let currentDays = days;
   let extendedTo: AcceptResult['extendedTo'] = null;
 
+  // A trip with nothing on it yet takes its dates from the itinerary outright;
+  // a trip that already has items is only ever widened.
+  const { count: existingCount } = await supabase
+    .from('itinerary_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('trip_id', trip.id);
+  const fresh = (existingCount ?? 0) === 0;
+
   const dates = items.map((i) => localDateOf(i.starts_local)).filter((d): d is string => d !== null);
   if (dates.length > 0) {
     const earliest = dates.reduce((a, b) => (a < b ? a : b));
     const latest = dates.reduce((a, b) => (a > b ? a : b));
-    const newStart = earliest < trip.start_date ? earliest : trip.start_date;
-    const newEnd = latest > trip.end_date ? latest : trip.end_date;
+    const newStart = fresh ? earliest : earliest < trip.start_date ? earliest : trip.start_date;
+    const newEnd = fresh ? latest : latest > trip.end_date ? latest : trip.end_date;
     const changes = newStart !== trip.start_date || newEnd !== trip.end_date;
     if (changes && daysBetween(newStart, newEnd) + 1 <= MAX_TRIP_DAYS) {
       const { data: updatedTrip, error: tripError } = await supabase
@@ -254,6 +262,7 @@ export async function acceptItems(
         ends_at: endsAt,
         ends_tz: item.ends_tz,
         location: item.location ?? item.from_name ?? null,
+        city: item.city ?? null,
         notes: [item.code, routeNote, item.notes].filter(Boolean).join(' · ') || null,
         sort_order: index,
         document_id: documentId,
@@ -272,7 +281,60 @@ export async function acceptItems(
     .eq('id', documentId);
   if (statusError) throw statusError;
 
+  currentDays = await refreshPlacesByDay(currentTrip, currentDays);
+  currentTrip = await fillDestination(currentTrip, currentDays);
+
   return { trip: currentTrip, days: currentDays, extendedTo, clamped };
+}
+
+/**
+ * Head each day with the place its items are in. Quiet days carry the last
+ * known place forward, so a rest day still says where you are.
+ */
+export async function refreshPlacesByDay(trip: Trip, days: ItineraryDay[]): Promise<ItineraryDay[]> {
+  const { data, error } = await supabase
+    .from('itinerary_items')
+    .select('day_id, city, kind, starts_at')
+    .eq('trip_id', trip.id)
+    .not('city', 'is', null);
+  if (error) throw error;
+  const byDay = new Map<string, string[]>();
+  for (const row of (data ?? []) as { day_id: string; city: string | null; kind: string; starts_at: string | null }[]) {
+    if (!row.city) continue;
+    byDay.set(row.day_id, [...(byDay.get(row.day_id) ?? []), row.city.trim()]);
+  }
+  const sorted = [...days].sort((a, b) => a.day_date.localeCompare(b.day_date));
+  let carry: string | null = null;
+  const updates: { id: string; headline: string }[] = [];
+  const result: ItineraryDay[] = [];
+  for (const day of sorted) {
+    const cities = byDay.get(day.id) ?? [];
+    let headline: string | null = carry;
+    if (cities.length > 0) {
+      const counts = new Map<string, number>();
+      for (const c of cities) counts.set(c, (counts.get(c) ?? 0) + 1);
+      headline = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      carry = headline;
+    }
+    if (headline && headline !== day.headline) updates.push({ id: day.id, headline });
+    result.push({ ...day, headline: headline ?? day.headline });
+  }
+  await Promise.all(updates.map((u) => supabase.from('itinerary_days').update({ headline: u.headline }).eq('id', u.id)));
+  return result;
+}
+
+/** If the trip has no destination yet, name the places it visits. */
+async function fillDestination(trip: Trip, days: ItineraryDay[]): Promise<Trip> {
+  if (trip.destination?.trim()) return trip;
+  const places: string[] = [];
+  for (const d of [...days].sort((a, b) => a.day_date.localeCompare(b.day_date))) {
+    if (d.headline && places[places.length - 1] !== d.headline && !places.includes(d.headline)) places.push(d.headline);
+  }
+  if (places.length === 0) return trip;
+  const destination = places.length <= 3 ? places.join(', ') : `${places.slice(0, 3).join(', ')} +${places.length - 3}`;
+  const { data, error } = await supabase.from('trips').update({ destination }).eq('id', trip.id).select().single();
+  if (error) throw error;
+  return data as Trip;
 }
 
 /** Remove one itinerary item. Editors only, enforced by row-level security. */

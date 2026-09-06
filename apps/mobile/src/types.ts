@@ -70,6 +70,7 @@ export type ItineraryItem = {
   ends_at: string | null;
   ends_tz: string | null;
   location: string | null;
+  city: string | null;
   notes: string | null;
   sort_order: number;
   document_id: string | null;
@@ -101,6 +102,7 @@ export type ExtractedItem = {
   ends_local: string | null;
   ends_tz: string | null;
   location: string | null;
+  city: string | null;
   notes: string | null;
 };
 

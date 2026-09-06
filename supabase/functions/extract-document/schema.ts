@@ -38,11 +38,12 @@ export const extractionSchema = {
           ends_local: nullableString,
           ends_tz: nullableString,
           location: nullableString,
+          city: nullableString,
           notes: nullableString,
         },
         required: [
           "kind", "title", "code", "from_name", "from_iata", "to_name", "to_iata",
-          "starts_local", "starts_tz", "ends_local", "ends_tz", "location", "notes",
+          "starts_local", "starts_tz", "ends_local", "ends_tz", "location", "city", "notes",
         ],
         additionalProperties: false,
       },
@@ -67,6 +68,7 @@ export type ExtractedItem = {
   ends_local: string | null;
   ends_tz: string | null;
   location: string | null;
+  city: string | null;
   notes: string | null;
 };
 
@@ -90,5 +92,7 @@ Return every distinct bookable thing in the document as an item. A return flight
 Times: write starts_local and ends_local as ISO 8601 with the local UTC offset printed or implied by the document (for example 2026-10-12T10:05:00+11:00), and give the IANA time zone of that place in starts_tz / ends_tz (for example Australia/Melbourne, Asia/Makassar). Flights depart in the origin's zone and arrive in the destination's zone. When you check a stated duration against departure and arrival times, convert both times to UTC using their offsets first; the difference between two local clock times in different zones is not a duration. Only warn about a mismatch if the UTC-based elapsed time differs from the stated duration by more than 15 minutes. If a date has no time, use 00:00 and say so in notes. If the year is missing, infer it from context and mention that in warnings.
 
 Titles are short and human: "QF43 Melbourne to Denpasar", "Alaya Resort Ubud", "Tegallalang rice terraces tour". Put seat numbers, baggage, pickup instructions and reference numbers in notes.
+
+city is the town or city where the traveller is for that item, as a short place name like "Ubud", "Tampa" or "New York". For a flight use the arrival city. For a stay use the hotel's town. For a transfer use the destination. Leave it null only if the document gives no clue.
 
 confidence is your overall confidence from 0 to 1 that the items are correct. Use warnings for anything a traveller should double-check: missing return legs, unclear dates, unreadable sections, multiple bookings in one file.`;

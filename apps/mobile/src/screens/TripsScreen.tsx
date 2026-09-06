@@ -24,8 +24,8 @@ export function TripsScreen({ onOpenTrip }: Props) {
   const nextWeek = new Date(today.getTime() + 7 * 86400000);
   const [name, setName] = useState('');
   const [destination, setDestination] = useState('');
-  const [startDate, setStartDate] = useState(toDmy(isoDate(today)));
-  const [endDate, setEndDate] = useState(toDmy(isoDate(nextWeek)));
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,10 +46,18 @@ export function TripsScreen({ onOpenTrip }: Props) {
     setCreating(true);
     setError(null);
     try {
-      const start = parseDmy(startDate);
-      const end = parseDmy(endDate);
-      if (!start || !end) throw new Error('Dates must be day/month/year, like 12/10/2026.');
-      if (end < start) throw new Error('The end date is before the start date.');
+      // Dates are optional: leave both blank and the first itinerary you upload sets them.
+      const hasDates = startDate.trim() !== '' || endDate.trim() !== '';
+      let start = isoDate(today);
+      let end = start;
+      if (hasDates) {
+        const s = parseDmy(startDate);
+        const e = parseDmy(endDate || startDate);
+        if (!s || !e) throw new Error('Dates must be day/month/year, like 12/10/2026, or left blank.');
+        if (e < s) throw new Error('The end date is before the start date.');
+        start = s;
+        end = e;
+      }
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData.user?.id;
       if (!userId) throw new Error('You are signed out.');
@@ -93,8 +101,9 @@ export function TripsScreen({ onOpenTrip }: Props) {
 
       {showForm ? (
         <View style={styles.form}>
-          <Field label="Trip name" value={name} onChangeText={setName} placeholder="Bali, October" />
-          <Field label="Destination" value={destination} onChangeText={setDestination} placeholder="Ubud, Bali" />
+          <Field label="Trip name" value={name} onChangeText={setName} placeholder="Bali, October" autoFocus />
+          <Field label="Destination (optional)" value={destination} onChangeText={setDestination} placeholder="Filled in from your itinerary if left blank" />
+          <Text style={styles.hint}>Dates are optional. Leave them blank and the first itinerary you upload will set them.</Text>
           <View style={styles.row}>
             <View style={styles.flex}>
               <Field label="Start (day/month/year)" value={startDate} onChangeText={setStartDate} placeholder="12/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
@@ -140,6 +149,7 @@ const styles = StyleSheet.create({
   link: { color: colors.accent, fontWeight: '600', paddingBottom: 6 },
   form: { gap: spacing.md, backgroundColor: colors.surface, padding: spacing.lg, borderRadius: 12, borderWidth: 1, borderColor: colors.line },
   row: { flexDirection: 'row', gap: spacing.md },
+  hint: { color: colors.ink3, fontSize: 12 },
   flex: { flex: 1 },
   list: { gap: spacing.sm, paddingBottom: spacing.xl },
   empty: { color: colors.ink3, textAlign: 'center', marginTop: spacing.xl },

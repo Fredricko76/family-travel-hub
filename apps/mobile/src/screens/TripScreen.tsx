@@ -207,6 +207,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
           ends_at: item.ends_local ? new Date(item.ends_local).toISOString() : null,
           ends_tz: item.ends_tz,
           location: item.location,
+          city: item.city ?? null,
           notes: item.notes,
           sort_order: 100 + index,
           document_id: review.document.id,
@@ -275,7 +276,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       if (demo) {
         const row = buildItemRow(trip, days, input); // validates the form the same way
         const saved: ItineraryItem = {
-          ...(editor.item ?? { id: `demo-item-${Date.now()}`, sort_order: 0, document_id: null, ends_at: null, ends_tz: null }),
+          ...(editor.item ?? { id: `demo-item-${Date.now()}`, sort_order: 0, document_id: null, ends_at: null, ends_tz: null, city: null }),
           ...row,
         };
         setItems((prev) => (editor.item ? prev.map((i) => (i.id === saved.id ? saved : i)) : [...prev, saved]));
@@ -387,6 +388,13 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       {tab === 'gallery' && <GalleryTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
       {tab === 'people' && <PeopleTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
 
+      {tab === 'plan' && canEdit && !demo && items.length === 0 && !review && (
+        <Notice
+          text="Start by uploading your itinerary or a booking. The dates and the place for each day fill in from what it finds."
+          tone="accent"
+        />
+      )}
+
       {tab === 'plan' && canEdit && (
         review ? (
           <ReviewCard
@@ -411,7 +419,10 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         return (
           <View key={day.id} style={styles.day}>
             <View style={styles.dayHead}>
-              <Text style={styles.dayHeading}>{formatDayHeading(day.day_date)}</Text>
+              <Text style={styles.dayHeading}>
+                {formatDayHeading(day.day_date)}
+                {day.headline ? <Text style={styles.dayPlace}> · {day.headline}</Text> : null}
+              </Text>
               {canEdit && (
                 <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
                   <Text style={styles.link}>+ Add</Text>
@@ -520,6 +531,7 @@ const styles = StyleSheet.create({
   day: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: spacing.md, gap: spacing.sm },
   dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dayHeading: { fontWeight: '700', color: colors.ink, fontSize: 15 },
+  dayPlace: { fontWeight: '600', color: colors.accent },
   itemActions: { alignItems: 'flex-end', gap: 6, paddingTop: 2 },
   dayEmpty: { color: colors.ink3, fontSize: 13 },
   item: { flexDirection: 'row', gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
