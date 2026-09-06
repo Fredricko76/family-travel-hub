@@ -21,6 +21,17 @@ export type Invite = {
   accepted_at: string | null;
 };
 
+export type CheckIn = {
+  id: string;
+  trip_id: string;
+  item_id: string;
+  user_id: string;
+  status: 'done' | 'skipped';
+  checked_at: string;
+  note: string | null;
+  profiles?: { display_name: string | null } | null;
+};
+
 export type Photo = {
   id: string;
   trip_id: string;

@@ -13,7 +13,10 @@ import { utcToLocalParts } from '../lib/time';
 import { GalleryTab } from '../components/GalleryTab';
 import { PeopleTab } from '../components/PeopleTab';
 import { myRole } from '../lib/people';
-import { isAdminRole, type TripRole } from '../types';
+import { isAdminRole, type CheckIn, type TripRole } from '../types';
+import { checkIn, listCheckIns, progressOf, todayInTrip, undoCheckIn, upNext } from '../lib/checkins';
+import { deviceZone } from '../lib/time';
+import { demoCheckIns } from '../demo';
 
 type Tab = 'plan' | 'gallery' | 'people';
 import { formatDayHeading, formatTime, KIND_LABEL, shortZone, toDmy } from '../lib/format';
@@ -39,7 +42,11 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const [days, setDays] = useState<ItineraryDay[]>(demo ? demoDays : []);
   const [items, setItems] = useState<ItineraryItem[]>(demo ? demoItems : []);
   const [documents, setDocuments] = useState<TripDocument[]>(demo ? demoDocuments : []);
+  const [checkIns, setCheckIns] = useState<CheckIn[]>(demo ? demoCheckIns : []);
   const [loading, setLoading] = useState(!demo);
+  const scrollRef = React.useRef<ScrollView>(null);
+  const todayY = React.useRef<number | null>(null);
+  const scrolledToToday = React.useRef(false);
   const [working, setWorking] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,16 +79,18 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const load = useCallback(async () => {
     if (demo) return;
     setLoading(true);
-    const [daysRes, itemsRes, docsRes] = await Promise.all([
+    const [daysRes, itemsRes, docsRes, checkInsRes] = await Promise.all([
       supabase.from('itinerary_days').select('*').eq('trip_id', trip.id).order('day_date'),
       supabase.from('itinerary_items').select('*').eq('trip_id', trip.id).order('starts_at', { nullsFirst: false }).order('sort_order'),
       supabase.from('documents').select('*').eq('trip_id', trip.id).order('created_at', { ascending: false }),
+      listCheckIns(trip).then((rows) => ({ data: rows, error: null }), (err) => ({ data: [] as CheckIn[], error: err as Error })),
     ]);
-    const firstError = daysRes.error ?? itemsRes.error ?? docsRes.error;
-    if (firstError) setError(firstError.message);
+    const firstError = daysRes.error ?? itemsRes.error ?? docsRes.error ?? checkInsRes.error;
+    if (firstError) setError(errorMessage(firstError));
     setDays((daysRes.data ?? []) as ItineraryDay[]);
     setItems((itemsRes.data ?? []) as ItineraryItem[]);
     setDocuments((docsRes.data ?? []) as TripDocument[]);
+    setCheckIns(checkInsRes.data);
     setLoading(false);
   }, [trip.id, demo]);
 
@@ -96,11 +105,67 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       .channel(`trip-${trip.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'itinerary_items', filter: `trip_id=eq.${trip.id}` }, () => load())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'documents', filter: `trip_id=eq.${trip.id}` }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins', filter: `trip_id=eq.${trip.id}` }, () => load())
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
   }, [trip.id, load, demo]);
+
+  // Today, in the zone the trip is currently in, and what is coming up next.
+  const todayDate = useMemo(() => todayInTrip(days, items, deviceZone()), [days, items]);
+  const todayDay = useMemo(() => days.find((d) => d.day_date === todayDate) ?? null, [days, todayDate]);
+  const nextItem = useMemo(() => upNext(items, checkIns, todayDay?.id ?? null), [items, checkIns, todayDay]);
+  const checkInByItem = useMemo(() => {
+    const map = new Map<string, CheckIn>();
+    for (const c of checkIns) if (!map.has(c.item_id)) map.set(c.item_id, c);
+    return map;
+  }, [checkIns]);
+  const tripProgress = useMemo(() => progressOf(items, checkIns), [items, checkIns]);
+
+  // Open the plan scrolled to today, once, when the trip is under way.
+  useEffect(() => {
+    if (scrolledToToday.current || tab !== 'plan' || !todayDay || todayY.current === null) return;
+    scrolledToToday.current = true;
+    const y = todayY.current;
+    setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }), 250);
+  }, [tab, todayDay, days.length, items.length]);
+
+  async function toggleCheckIn(item: ItineraryItem) {
+    setError(null);
+    const existing = checkInByItem.get(item.id);
+    if (demo) {
+      setCheckIns((prev) =>
+        existing
+          ? prev.filter((c) => c.id !== existing.id)
+          : [
+              ...prev,
+              {
+                id: `demo-check-${Date.now()}`,
+                trip_id: trip.id,
+                item_id: item.id,
+                user_id: 'demo-user',
+                status: 'done',
+                checked_at: new Date().toISOString(),
+                note: null,
+                profiles: { display_name: 'You' },
+              },
+            ],
+      );
+      return;
+    }
+    try {
+      if (existing && (existing.user_id === myUserId || canEdit)) {
+        await undoCheckIn(existing.id);
+        setCheckIns((prev) => prev.filter((c) => c.id !== existing.id));
+      } else if (!existing) {
+        const created = await checkIn(trip, item);
+        setCheckIns((prev) => [...prev, created]);
+      }
+    } catch (err) {
+      setError(errorMessage(err, 'Could not update the check-in.'));
+    }
+  }
 
   // In the sample-data preview every action stays on the device.
   function openDemoReview() {
@@ -348,6 +413,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.screen}
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
@@ -360,7 +426,18 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       <Text style={styles.title}>{trip.name}</Text>
       <Text style={styles.meta}>
         {formatDayHeading(trip.start_date)} to {formatDayHeading(trip.end_date)} · {days.length} days
+        {tripProgress.total > 0 ? ` · ${tripProgress.done} of ${tripProgress.total} done` : ''}
       </Text>
+      {tab === 'plan' && nextItem && (
+        <View style={styles.nextCard}>
+          <Text style={styles.nextLabel}>UP NEXT</Text>
+          <Text style={styles.nextTitle}>{nextItem.title}</Text>
+          <Text style={styles.nextMeta}>
+            {nextItem.starts_at ? `${formatTime(nextItem.starts_at, nextItem.starts_tz)} ${shortZone(nextItem.starts_tz)} time` : 'Today, no set time'}
+            {nextItem.location ? ` · ${nextItem.location}` : ''}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.tabs} accessibilityRole="tablist">
         {(
@@ -416,35 +493,77 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       {tab === 'plan' && <Text style={styles.section}>Itinerary</Text>}
       {tab === 'plan' && days.map((day) => {
         const dayItems = itemsByDay.get(day.id) ?? [];
+        const isToday = day.id === todayDay?.id;
+        const isPast = day.day_date < todayDate;
+        const progress = progressOf(dayItems, checkIns);
         return (
-          <View key={day.id} style={styles.day}>
+          <View
+            key={day.id}
+            style={[styles.day, isToday && styles.dayToday, isPast && styles.dayPast]}
+            onLayout={isToday ? (e) => { todayY.current = e.nativeEvent.layout.y; } : undefined}
+          >
             <View style={styles.dayHead}>
               <Text style={styles.dayHeading}>
                 {formatDayHeading(day.day_date)}
                 {day.headline ? <Text style={styles.dayPlace}> · {day.headline}</Text> : null}
               </Text>
-              {canEdit && (
-                <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
-                  <Text style={styles.link}>+ Add</Text>
-                </Pressable>
-              )}
+              <View style={styles.dayHeadRight}>
+                {isToday && <Chip text="Today" tone="accent" />}
+                {canEdit && (
+                  <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
+                    <Text style={styles.link}>+ Add</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
+            {progress.total > 0 && (
+              <View style={styles.progressRow}>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${Math.round((progress.done / progress.total) * 100)}%` }]} />
+                </View>
+                <Text style={styles.progressText}>
+                  {progress.done} of {progress.total} done
+                </Text>
+              </View>
+            )}
             {dayItems.length === 0 && editor?.dayId !== day.id ? (
               <Text style={styles.dayEmpty}>Nothing planned yet</Text>
             ) : (
-              dayItems.map((item) => (
-                <View key={item.id} style={styles.item}>
-                  <Text style={styles.itemTime}>
+              dayItems.map((item) => {
+                const done = checkInByItem.get(item.id) ?? null;
+                const isNext = nextItem?.id === item.id;
+                return (
+                <View key={item.id} style={[styles.item, done && styles.itemDone]}>
+                  <Pressable
+                    onPress={() => toggleCheckIn(item)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: !!done }}
+                    accessibilityLabel={done ? 'Mark as not done' : 'Check in'}
+                    hitSlop={8}
+                    style={[styles.check, done && styles.checkOn]}
+                  >
+                    {done && <Text style={styles.checkMark}>✓</Text>}
+                  </Pressable>
+                  <Text style={[styles.itemTime, done && styles.textDone]}>
                     {item.starts_at ? formatTime(item.starts_at, item.starts_tz) : '—'}
                   </Text>
                   <View style={styles.flex}>
-                    <Text style={styles.itemTitle}>{item.title}</Text>
+                    <View style={styles.itemTitleRow}>
+                      <Text style={[styles.itemTitle, done && styles.textDone]}>{item.title}</Text>
+                      {isNext && !done && <Chip text="Up next" tone="accent" />}
+                    </View>
                     <Text style={styles.itemMeta}>
                       {KIND_LABEL[item.kind]}
                       {item.starts_tz ? ` · ${shortZone(item.starts_tz)} time` : ''}
                       {item.location ? ` · ${item.location}` : ''}
                     </Text>
                     {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
+                    {done && (
+                      <Text style={styles.doneLine}>
+                        Done {formatTime(done.checked_at, item.starts_tz)}
+                        {done.profiles?.display_name ? ` · ${done.profiles.display_name}` : ''}
+                      </Text>
+                    )}
                   </View>
                   {canEdit && (
                     <View style={styles.itemActions}>
@@ -457,7 +576,8 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                     </View>
                   )}
                 </View>
-              ))
+                );
+              })
             )}
             {editor?.dayId === day.id && (
               <ItemEditor
@@ -529,7 +649,25 @@ const styles = StyleSheet.create({
   tabText: { fontWeight: '600', color: colors.ink2 },
   tabTextOn: { color: colors.ink },
   day: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: spacing.md, gap: spacing.sm },
-  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+  dayHeadRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  dayToday: { borderColor: colors.accent, borderWidth: 2, backgroundColor: colors.surface },
+  dayPast: { opacity: 0.75 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  progressTrack: { flex: 1, height: 5, borderRadius: 3, backgroundColor: colors.surface2, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: colors.done },
+  progressText: { color: colors.ink2, fontSize: 12, fontVariant: ['tabular-nums'] },
+  check: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  checkOn: { backgroundColor: colors.done, borderColor: colors.done },
+  checkMark: { color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 16 },
+  itemDone: {},
+  textDone: { color: colors.ink3, textDecorationLine: 'line-through' },
+  itemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  doneLine: { color: colors.done, fontSize: 12, marginTop: 2, fontWeight: '600' },
+  nextCard: { backgroundColor: colors.accentSoft, borderRadius: 12, padding: spacing.md, gap: 2 },
+  nextLabel: { color: colors.accent, fontWeight: '700', letterSpacing: 2, fontSize: 11 },
+  nextTitle: { color: colors.ink, fontWeight: '700', fontSize: 16 },
+  nextMeta: { color: colors.ink2, fontSize: 13 },
   dayHeading: { fontWeight: '700', color: colors.ink, fontSize: 15 },
   dayPlace: { fontWeight: '600', color: colors.accent },
   itemActions: { alignItems: 'flex-end', gap: 6, paddingTop: 2 },

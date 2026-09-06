@@ -1,5 +1,5 @@
 // Sample data for the "look around" preview. Nothing here touches Supabase.
-import type { Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from './types';
+import type { CheckIn, Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from './types';
 
 export const demoTrip: Trip = {
   id: 'demo-trip',
@@ -96,6 +96,17 @@ export const demoDocuments: TripDocument[] = [
     id: 'demo-doc-2', trip_id: demoTrip.id, storage_path: null, original_name: 'Alaya Resort booking.pdf',
     mime_type: 'application/pdf', size_bytes: 96_000, status: 'ready_for_review', error_message: null,
     created_at: '2026-09-03T09:40:00Z',
+  },
+];
+
+export const demoCheckIns: CheckIn[] = [
+  {
+    id: 'demo-check-1', trip_id: demoTrip.id, item_id: 'demo-item-1', user_id: 'demo-user', status: 'done',
+    checked_at: '2026-10-11T23:20:00Z', note: null, profiles: { display_name: 'You' },
+  },
+  {
+    id: 'demo-check-2', trip_id: demoTrip.id, item_id: 'demo-item-2', user_id: 'demo-user', status: 'done',
+    checked_at: '2026-10-12T06:40:00Z', note: null, profiles: { display_name: 'You' },
   },
 ];
 

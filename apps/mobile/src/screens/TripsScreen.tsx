@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { Button, Field, Notice } from '../components/ui';
+import { Button, Chip, Field, Notice } from '../components/ui';
 import { colors, spacing } from '../theme';
 import type { Trip } from '../types';
 import { formatDayHeading, parseDmy, toDmy } from '../lib/format';
@@ -15,6 +15,7 @@ function isoDate(d: Date) {
 
 export function TripsScreen({ onOpenTrip }: Props) {
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [progress, setProgress] = useState<Map<string, { done: number; total: number }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -35,8 +36,34 @@ export function TripsScreen({ onOpenTrip }: Props) {
       .order('start_date', { ascending: false });
     if (loadError) setError(loadError.message);
     else setTrips((data ?? []) as Trip[]);
+    // Progress per trip: items vs items with at least one check-in.
+    const [itemsRes, checksRes] = await Promise.all([
+      supabase.from('itinerary_items').select('id, trip_id'),
+      supabase.from('check_ins').select('item_id, trip_id'),
+    ]);
+    const map = new Map<string, { done: number; total: number }>();
+    for (const row of (itemsRes.data ?? []) as { id: string; trip_id: string }[]) {
+      const p = map.get(row.trip_id) ?? { done: 0, total: 0 };
+      p.total += 1;
+      map.set(row.trip_id, p);
+    }
+    const seen = new Set<string>();
+    for (const row of (checksRes.data ?? []) as { item_id: string; trip_id: string }[]) {
+      if (seen.has(row.item_id)) continue;
+      seen.add(row.item_id);
+      const p = map.get(row.trip_id);
+      if (p) p.done += 1;
+    }
+    setProgress(map);
     setLoading(false);
   }, []);
+
+  const todayIso = isoDate(new Date());
+  function statusOf(trip: Trip): { text: string; tone: 'neutral' | 'accent' | 'done' } {
+    if (trip.end_date < todayIso) return { text: 'Finished', tone: 'neutral' };
+    if (trip.start_date <= todayIso) return { text: 'On now', tone: 'accent' };
+    return { text: 'Upcoming', tone: 'done' };
+  }
 
   useEffect(() => {
     load();
@@ -85,12 +112,28 @@ export function TripsScreen({ onOpenTrip }: Props) {
     }
   }
 
+  const { width } = useWindowDimensions();
+  const columns = width >= 640 ? 2 : 1;
+  const onNow = trips.filter((t) => statusOf(t).text === 'On now').length;
+  const upcoming = trips.filter((t) => statusOf(t).text === 'Upcoming').length;
+  const summary =
+    trips.length === 0
+      ? ''
+      : [
+          `${trips.length} trip${trips.length === 1 ? '' : 's'}`,
+          onNow ? `${onNow} on now` : null,
+          upcoming ? `${upcoming} coming up` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.eyebrow}>YOUR TRIPS</Text>
-          <Text style={styles.title}>Holidays</Text>
+          <Text style={styles.eyebrow}>DASHBOARD</Text>
+          <Text style={styles.title}>Your trips</Text>
+          {summary ? <Text style={styles.summary}>{summary}</Text> : null}
         </View>
         <Pressable onPress={() => supabase.auth.signOut()} accessibilityRole="button">
           <Text style={styles.link}>Sign out</Text>
@@ -120,22 +163,43 @@ export function TripsScreen({ onOpenTrip }: Props) {
       )}
 
       <FlatList
+        key={`cols-${columns}`}
         data={trips}
+        numColumns={columns}
         keyExtractor={(t) => t.id}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
         contentContainerStyle={styles.list}
+        columnWrapperStyle={columns > 1 ? styles.rowWrap : undefined}
         ListEmptyComponent={
           loading ? null : <Text style={styles.empty}>No trips yet. Create one to start uploading bookings.</Text>
         }
-        renderItem={({ item }) => (
-          <Pressable style={styles.card} onPress={() => onOpenTrip(item)} accessibilityRole="button">
-            <Text style={styles.cardTitle}>{item.name}</Text>
-            <Text style={styles.cardMeta}>
-              {item.destination ? `${item.destination} · ` : ''}
-              {formatDayHeading(item.start_date)} to {formatDayHeading(item.end_date)}
-            </Text>
-          </Pressable>
-        )}
+        renderItem={({ item }) => {
+          const status = statusOf(item);
+          const p = progress.get(item.id) ?? { done: 0, total: 0 };
+          const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+          return (
+            <Pressable
+              style={[styles.card, columns > 1 && styles.cardHalf, status.text === 'On now' && styles.cardOnNow]}
+              onPress={() => onOpenTrip(item)}
+              accessibilityRole="button"
+            >
+              <View style={styles.cardHead}>
+                <Text style={[styles.cardTitle, styles.flex]} numberOfLines={2}>{item.name}</Text>
+                <Chip text={status.text} tone={status.tone} />
+              </View>
+              {item.destination ? <Text style={styles.cardPlace}>{item.destination}</Text> : null}
+              <Text style={styles.cardMeta}>
+                {formatDayHeading(item.start_date)} to {formatDayHeading(item.end_date)}
+              </Text>
+              <View style={styles.barRow}>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, { width: `${pct}%` }, status.text === 'Finished' && styles.barFinished]} />
+                </View>
+                <Text style={styles.barText}>{p.total > 0 ? `${p.done} of ${p.total} done` : 'Nothing planned yet'}</Text>
+              </View>
+            </Pressable>
+          );
+        }}
       />
     </View>
   );
@@ -151,9 +215,20 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.md },
   hint: { color: colors.ink3, fontSize: 12 },
   flex: { flex: 1 },
-  list: { gap: spacing.sm, paddingBottom: spacing.xl },
+  summary: { color: colors.ink2, fontSize: 14, marginTop: 2 },
+  list: { gap: spacing.md, paddingBottom: spacing.xl },
+  rowWrap: { gap: spacing.md },
   empty: { color: colors.ink3, textAlign: 'center', marginTop: spacing.xl },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.lg, borderWidth: 1, borderColor: colors.line, gap: 4 },
+  card: { backgroundColor: colors.surface, borderRadius: 14, padding: spacing.lg, borderWidth: 1, borderColor: colors.line, gap: 6 },
+  cardHalf: { flex: 1 },
+  cardOnNow: { borderColor: colors.accent, borderWidth: 2 },
+  cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   cardTitle: { fontSize: 18, fontWeight: '700', color: colors.ink },
-  cardMeta: { color: colors.ink2, fontSize: 14 },
+  cardPlace: { color: colors.accent, fontWeight: '600', fontSize: 14 },
+  cardMeta: { color: colors.ink2, fontSize: 13 },
+  barRow: { gap: 4, marginTop: 4 },
+  barTrack: { height: 8, borderRadius: 4, backgroundColor: colors.surface2, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: colors.done, borderRadius: 4 },
+  barFinished: { backgroundColor: colors.ink3 },
+  barText: { color: colors.ink2, fontSize: 12, fontVariant: ['tabular-nums'] },
 });
