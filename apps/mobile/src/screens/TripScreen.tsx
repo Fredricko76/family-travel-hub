@@ -5,7 +5,8 @@ import { Button, Chip, Notice } from '../components/ui';
 import { ReviewCard } from '../components/ReviewCard';
 import { colors, spacing } from '../theme';
 import type { ExtractedItem, Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from '../types';
-import { acceptItems, declineDocument, extractDocument, pickAndUploadDocument } from '../lib/documents';
+import { acceptItems, declineDocument, deleteItem, deleteTrip, extractDocument, pickAndUploadDocument } from '../lib/documents';
+import { confirm } from '../lib/confirm';
 import { formatDayHeading, formatTime, KIND_LABEL, shortZone } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
@@ -23,7 +24,9 @@ const STATUS_LABEL: Record<TripDocument['status'], { text: string; tone: 'neutra
   failed: { text: 'Failed', tone: 'danger' },
 };
 
-export function TripScreen({ trip, onBack, demo = false }: Props) {
+export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
+  const [trip, setTrip] = useState<Trip>(initialTrip);
+  const [notice, setNotice] = useState<string | null>(null);
   const [days, setDays] = useState<ItineraryDay[]>(demo ? demoDays : []);
   const [items, setItems] = useState<ItineraryItem[]>(demo ? demoItems : []);
   const [documents, setDocuments] = useState<TripDocument[]>(demo ? demoDocuments : []);
@@ -90,7 +93,9 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
   }, [items]);
 
   async function uploadAndExtract() {
+    if (working) return; // ignore a second tap while the first is in flight
     setError(null);
+    setNotice(null);
     if (demo) {
       openDemoReview();
       return;
@@ -180,13 +185,58 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
     }
     setWorking('accept');
     try {
-      await acceptItems(trip, review.document.id, chosen, days);
+      const result = await acceptItems(trip, review.document.id, chosen, days);
       setReview(null);
+      if (result.extendedTo) {
+        setTrip(result.trip);
+        setNotice(
+          `Trip dates widened to ${formatDayHeading(result.extendedTo.start)} to ${formatDayHeading(result.extendedTo.end)} so every booking has its own day.`,
+        );
+      } else if (result.clamped > 0) {
+        setNotice(
+          `${result.clamped} item${result.clamped === 1 ? ' falls' : 's fall'} outside the trip dates and ${result.clamped === 1 ? 'was' : 'were'} placed on the nearest day. Adjust the trip dates to spread them out.`,
+        );
+      }
     } catch (err) {
       setError(errorMessage(err, 'Could not add items.'));
     } finally {
       setWorking(null);
       await load();
+    }
+  }
+
+  async function removeItem(item: ItineraryItem) {
+    const ok = await confirm('Remove this item?', item.title, 'Remove');
+    if (!ok) return;
+    if (demo) {
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+      return;
+    }
+    try {
+      await deleteItem(item.id);
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+    } catch (err) {
+      setError(errorMessage(err, 'Could not remove the item.'));
+    }
+  }
+
+  async function removeTrip() {
+    const ok = await confirm(
+      'Delete this trip?',
+      `"${trip.name}" and all of its itinerary, documents and photos will be deleted for everyone on it. This cannot be undone.`,
+    );
+    if (!ok) return;
+    if (demo) {
+      onBack();
+      return;
+    }
+    setWorking('delete');
+    try {
+      await deleteTrip(trip);
+      onBack();
+    } catch (err) {
+      setError(errorMessage(err, 'Could not delete the trip.'));
+      setWorking(null);
     }
   }
 
@@ -226,6 +276,7 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
       </Text>
 
       {error && <Notice text={error} tone="danger" />}
+      {notice && <Notice text={notice} tone="accent" />}
 
       {review ? (
         <ReviewCard
@@ -266,6 +317,9 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
                     </Text>
                     {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
                   </View>
+                  <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
+                    <Text style={styles.remove}>Remove</Text>
+                  </Pressable>
                 </View>
               ))
             )}
@@ -297,6 +351,17 @@ export function TripScreen({ trip, onBack, demo = false }: Props) {
           </View>
         );
       })}
+
+      <View style={styles.dangerZone}>
+        <Button
+          title="Delete this trip"
+          variant="danger"
+          onPress={removeTrip}
+          loading={working === 'delete'}
+          disabled={working !== null && working !== 'delete'}
+        />
+        <Text style={styles.dangerHint}>Only the trip owner can delete it. Everything in it goes too.</Text>
+      </View>
     </ScrollView>
   );
 }
@@ -321,4 +386,7 @@ const styles = StyleSheet.create({
   doc: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.line, padding: spacing.md },
   docName: { color: colors.ink, fontWeight: '600' },
   docError: { color: colors.danger, fontSize: 12 },
+  remove: { color: colors.ink3, fontSize: 12, paddingTop: 2 },
+  dangerZone: { marginTop: spacing.xl, gap: spacing.sm },
+  dangerHint: { color: colors.ink3, fontSize: 12, textAlign: 'center' },
 });

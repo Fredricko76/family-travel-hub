@@ -167,23 +167,75 @@ export function dayForItem(item: ExtractedItem, days: ItineraryDay[]): Itinerary
   return date < days[0].day_date ? days[0] : days[days.length - 1];
 }
 
+/** Longest a trip may become through automatic extension, in days. */
+const MAX_TRIP_DAYS = 120;
+
+function daysBetween(a: string, b: string) {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+}
+
+export type AcceptResult = {
+  trip: Trip;
+  days: ItineraryDay[];
+  /** Set when the trip's dates were widened to fit the new items. */
+  extendedTo: { start: string; end: string } | null;
+  /** Set when items fell outside the trip and were clamped to its first or last day. */
+  clamped: number;
+};
+
 /**
  * Turn accepted extracted items into real itinerary items.
  * Each item is stored as an absolute instant plus the zone it should display in.
+ * If items fall outside the trip's dates, the trip is widened to cover them
+ * (up to MAX_TRIP_DAYS); otherwise they land on the nearest edge day.
  */
 export async function acceptItems(
   trip: Trip,
   documentId: string,
   items: ExtractedItem[],
   days: ItineraryDay[],
-) {
+): Promise<AcceptResult> {
   const { data: authData } = await supabase.auth.getUser();
   const userId = authData.user?.id ?? null;
 
+  let currentTrip = trip;
+  let currentDays = days;
+  let extendedTo: AcceptResult['extendedTo'] = null;
+
+  const dates = items.map((i) => localDateOf(i.starts_local)).filter((d): d is string => d !== null);
+  if (dates.length > 0) {
+    const earliest = dates.reduce((a, b) => (a < b ? a : b));
+    const latest = dates.reduce((a, b) => (a > b ? a : b));
+    const newStart = earliest < trip.start_date ? earliest : trip.start_date;
+    const newEnd = latest > trip.end_date ? latest : trip.end_date;
+    const changes = newStart !== trip.start_date || newEnd !== trip.end_date;
+    if (changes && daysBetween(newStart, newEnd) + 1 <= MAX_TRIP_DAYS) {
+      const { data: updatedTrip, error: tripError } = await supabase
+        .from('trips')
+        .update({ start_date: newStart, end_date: newEnd })
+        .eq('id', trip.id)
+        .select()
+        .single();
+      if (tripError) throw tripError;
+      currentTrip = updatedTrip as Trip;
+      const { data: dayRows, error: dayError } = await supabase
+        .from('itinerary_days')
+        .select('*')
+        .eq('trip_id', trip.id)
+        .order('day_date');
+      if (dayError) throw dayError;
+      currentDays = dayRows as ItineraryDay[];
+      extendedTo = { start: newStart, end: newEnd };
+    }
+  }
+
+  let clamped = 0;
   const rows = items
     .map((item, index) => {
-      const day = dayForItem(item, days);
+      const day = dayForItem(item, currentDays);
       if (!day) return null;
+      const date = localDateOf(item.starts_local);
+      if (date && date !== day.day_date) clamped += 1;
       const startsAt = item.starts_local && !Number.isNaN(Date.parse(item.starts_local))
         ? new Date(item.starts_local).toISOString()
         : null;
@@ -193,7 +245,7 @@ export async function acceptItems(
       const routeNote =
         item.from_iata && item.to_iata ? `${item.from_iata} → ${item.to_iata}` : null;
       return {
-        trip_id: trip.id,
+        trip_id: currentTrip.id,
         day_id: day.id,
         kind: item.kind,
         title: item.title,
@@ -219,6 +271,33 @@ export async function acceptItems(
     .update({ status: 'accepted' })
     .eq('id', documentId);
   if (statusError) throw statusError;
+
+  return { trip: currentTrip, days: currentDays, extendedTo, clamped };
+}
+
+/** Remove one itinerary item. Editors only, enforced by row-level security. */
+export async function deleteItem(itemId: string) {
+  const { error } = await supabase.from('itinerary_items').delete().eq('id', itemId);
+  if (error) throw error;
+}
+
+/**
+ * Delete a whole trip: its files in storage first, then the row, which
+ * cascades to days, items, documents and extractions. Owner only.
+ */
+export async function deleteTrip(trip: Trip) {
+  const { data: docs, error: docsError } = await supabase
+    .from('documents')
+    .select('storage_path')
+    .eq('trip_id', trip.id);
+  if (docsError) throw docsError;
+  const paths = (docs ?? []).map((d) => d.storage_path).filter((p): p is string => !!p);
+  if (paths.length > 0) {
+    const { error: removeError } = await supabase.storage.from('documents').remove(paths);
+    if (removeError) throw removeError;
+  }
+  const { error } = await supabase.from('trips').delete().eq('id', trip.id);
+  if (error) throw error;
 }
 
 export async function declineDocument(documentId: string) {
