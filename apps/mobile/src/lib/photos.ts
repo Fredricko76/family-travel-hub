@@ -81,6 +81,22 @@ export function pickPhoto(source: 'camera' | 'library'): Promise<PickedPhoto | n
   return Platform.OS === 'web' ? pickWeb(source) : pickNative(source);
 }
 
+/** Whether the web build can show its own live camera view. */
+export function hasLiveCamera(): boolean {
+  return Platform.OS === 'web' && typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+}
+
+/** Wrap a JPEG captured from the live camera as a photo ready to upload. */
+export function photoFromBlob(blob: Blob, width: number, height: number): PickedPhoto {
+  return {
+    mime: blob.type || 'image/jpeg',
+    width,
+    height,
+    takenAt: new Date(),
+    bytes: async () => new Uint8Array(await blob.arrayBuffer()),
+  };
+}
+
 function extensionFor(mime: string) {
   if (mime === 'image/png') return 'png';
   if (mime === 'image/webp') return 'webp';

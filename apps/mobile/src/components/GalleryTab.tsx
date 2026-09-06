@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase';
 import { Button, Notice } from './ui';
 import { colors, spacing } from '../theme';
 import type { Trip } from '../types';
-import { deletePhoto, fullPhotoUrl, listPhotos, pickPhoto, uploadPhoto, type PhotoWithUrl } from '../lib/photos';
+import { deletePhoto, fullPhotoUrl, hasLiveCamera, listPhotos, photoFromBlob, pickPhoto, uploadPhoto, type PhotoWithUrl } from '../lib/photos';
+import { WebCamera } from './WebCamera';
 import { confirm } from '../lib/confirm';
 import { errorMessage } from '../lib/errors';
 import { formatDayHeading } from '../lib/format';
@@ -23,6 +24,7 @@ export function GalleryTab({ trip, demo, canEdit, myUserId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ photo: PhotoWithUrl; url: string } | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const { width } = useWindowDimensions();
   const tile = Math.floor((Math.min(width, 720) - spacing.lg * 2 - 8) / 3);
 
@@ -69,6 +71,10 @@ export function GalleryTab({ trip, demo, canEdit, myUserId }: Props) {
       setError('Sign in to add photos to a real trip.');
       return;
     }
+    if (source === 'camera' && hasLiveCamera()) {
+      setCameraOpen(true); // the in-app camera view takes it from here
+      return;
+    }
     setBusy(source);
     try {
       const picked = await pickPhoto(source);
@@ -82,6 +88,38 @@ export function GalleryTab({ trip, demo, canEdit, myUserId }: Props) {
       setBusy(null);
     }
   }
+
+  async function captured(blob: Blob, width: number, height: number) {
+    setCameraOpen(false);
+    setBusy('upload');
+    try {
+      await uploadPhoto(trip, photoFromBlob(blob, width, height));
+      await load();
+    } catch (err) {
+      setError(errorMessage(err, 'Could not save the photo.'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const cameraUnavailable = useCallback(
+    (reason: string) => {
+      // Live camera refused: close it and fall back to the system chooser.
+      setCameraOpen(false);
+      setError(reason);
+      pickPhoto('camera')
+        .then(async (picked) => {
+          if (!picked) return;
+          setError(null);
+          setBusy('upload');
+          await uploadPhoto(trip, picked);
+          await load();
+        })
+        .catch((err) => setError(errorMessage(err, 'Could not add the photo.')))
+        .finally(() => setBusy(null));
+    },
+    [trip, load],
+  );
 
   async function open(photo: PhotoWithUrl) {
     const url = (await fullPhotoUrl(photo)) ?? photo.thumbUrl;
@@ -102,6 +140,7 @@ export function GalleryTab({ trip, demo, canEdit, myUserId }: Props) {
 
   return (
     <View style={styles.wrap}>
+      {cameraOpen && <WebCamera onCapture={captured} onCancel={() => setCameraOpen(false)} onUnavailable={cameraUnavailable} />}
       <View style={styles.actions}>
         <View style={styles.flex}>
           <Button title="Take a photo" onPress={() => add('camera')} loading={busy === 'camera'} disabled={busy !== null && busy !== 'camera'} />
