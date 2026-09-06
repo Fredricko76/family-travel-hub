@@ -7,6 +7,9 @@ import { colors, spacing } from '../theme';
 import type { ExtractedItem, Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from '../types';
 import { acceptItems, declineDocument, deleteItem, deleteTrip, extractDocument, pickAndUploadDocument } from '../lib/documents';
 import { confirm } from '../lib/confirm';
+import { ItemEditor } from '../components/ItemEditor';
+import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
+import { utcToLocalParts } from '../lib/time';
 import { formatDayHeading, formatTime, KIND_LABEL, shortZone } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
@@ -34,6 +37,8 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const [working, setWorking] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ dayId: string; item: ItineraryItem | null; initial: ItemInput } | null>(null);
+  const [savingItem, setSavingItem] = useState(false);
 
   const load = useCallback(async () => {
     if (demo) return;
@@ -205,6 +210,58 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
     }
   }
 
+  function openAdd(day: ItineraryDay) {
+    setError(null);
+    setEditor({
+      dayId: day.id,
+      item: null,
+      initial: { kind: 'activity', title: '', date: day.day_date, time: '', tz: inferZone(day, days, items), location: '', notes: '' },
+    });
+  }
+
+  function openEdit(item: ItineraryItem) {
+    setError(null);
+    const day = days.find((d) => d.id === item.day_id);
+    const tz = item.starts_tz ?? inferZone(day ?? days[0], days, items);
+    const parts = item.starts_at ? utcToLocalParts(item.starts_at, tz) : null;
+    setEditor({
+      dayId: item.day_id,
+      item,
+      initial: {
+        kind: item.kind,
+        title: item.title,
+        date: parts?.date ?? day?.day_date ?? trip.start_date,
+        time: parts?.time ?? '',
+        tz,
+        location: item.location ?? '',
+        notes: item.notes ?? '',
+      },
+    });
+  }
+
+  async function saveEditor(input: ItemInput) {
+    if (!editor) return;
+    setSavingItem(true);
+    try {
+      if (demo) {
+        const row = buildItemRow(trip, days, input); // validates the form the same way
+        const saved: ItineraryItem = {
+          ...(editor.item ?? { id: `demo-item-${Date.now()}`, sort_order: 0, document_id: null, ends_at: null, ends_tz: null }),
+          ...row,
+        };
+        setItems((prev) => (editor.item ? prev.map((i) => (i.id === saved.id ? saved : i)) : [...prev, saved]));
+      } else {
+        const saved = editor.item
+          ? await updateItem(trip, days, editor.item.id, input)
+          : await createItem(trip, days, input);
+        setItems((prev) => (editor.item ? prev.map((i) => (i.id === saved.id ? saved : i)) : [...prev, saved]));
+      }
+      setEditor(null);
+    } finally {
+      setSavingItem(false);
+    }
+  }
+
   async function removeItem(item: ItineraryItem) {
     const ok = await confirm('Remove this item?', item.title, 'Remove');
     if (!ok) return;
@@ -299,8 +356,13 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         const dayItems = itemsByDay.get(day.id) ?? [];
         return (
           <View key={day.id} style={styles.day}>
-            <Text style={styles.dayHeading}>{formatDayHeading(day.day_date)}</Text>
-            {dayItems.length === 0 ? (
+            <View style={styles.dayHead}>
+              <Text style={styles.dayHeading}>{formatDayHeading(day.day_date)}</Text>
+              <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
+                <Text style={styles.link}>+ Add</Text>
+              </Pressable>
+            </View>
+            {dayItems.length === 0 && editor?.dayId !== day.id ? (
               <Text style={styles.dayEmpty}>Nothing planned yet</Text>
             ) : (
               dayItems.map((item) => (
@@ -317,11 +379,26 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                     </Text>
                     {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
                   </View>
-                  <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
-                    <Text style={styles.remove}>Remove</Text>
-                  </Pressable>
+                  <View style={styles.itemActions}>
+                    <Pressable onPress={() => openEdit(item)} accessibilityRole="button" hitSlop={8}>
+                      <Text style={styles.link}>Edit</Text>
+                    </Pressable>
+                    <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
+                      <Text style={styles.remove}>Remove</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))
+            )}
+            {editor?.dayId === day.id && (
+              <ItemEditor
+                key={editor.item?.id ?? 'new'}
+                title={editor.item ? 'Edit item' : `Add to ${formatDayHeading(day.day_date)}`}
+                initial={editor.initial}
+                saving={savingItem}
+                onSave={saveEditor}
+                onCancel={() => setEditor(null)}
+              />
             )}
           </View>
         );
@@ -376,7 +453,9 @@ const styles = StyleSheet.create({
   meta: { color: colors.ink2 },
   section: { fontSize: 20, fontWeight: '700', color: colors.ink, marginTop: spacing.lg },
   day: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: spacing.md, gap: spacing.sm },
+  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dayHeading: { fontWeight: '700', color: colors.ink, fontSize: 15 },
+  itemActions: { alignItems: 'flex-end', gap: 6, paddingTop: 2 },
   dayEmpty: { color: colors.ink3, fontSize: 13 },
   item: { flexDirection: 'row', gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
   itemTime: { width: 48, color: colors.ink2, fontVariant: ['tabular-nums'], fontSize: 13, paddingTop: 2 },
