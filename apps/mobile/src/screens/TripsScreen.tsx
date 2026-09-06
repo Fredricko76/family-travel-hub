@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Button, Field, Notice } from '../components/ui';
 import { colors, spacing } from '../theme';
 import type { Trip } from '../types';
-import { formatDayHeading } from '../lib/format';
+import { formatDayHeading, parseDmy, toDmy } from '../lib/format';
 import { errorMessage } from '../lib/errors';
 
 type Props = { onOpenTrip: (trip: Trip) => void };
@@ -24,8 +24,8 @@ export function TripsScreen({ onOpenTrip }: Props) {
   const nextWeek = new Date(today.getTime() + 7 * 86400000);
   const [name, setName] = useState('');
   const [destination, setDestination] = useState('');
-  const [startDate, setStartDate] = useState(isoDate(today));
-  const [endDate, setEndDate] = useState(isoDate(nextWeek));
+  const [startDate, setStartDate] = useState(toDmy(isoDate(today)));
+  const [endDate, setEndDate] = useState(toDmy(isoDate(nextWeek)));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,6 +46,10 @@ export function TripsScreen({ onOpenTrip }: Props) {
     setCreating(true);
     setError(null);
     try {
+      const start = parseDmy(startDate);
+      const end = parseDmy(endDate);
+      if (!start || !end) throw new Error('Dates must be day/month/year, like 12/10/2026.');
+      if (end < start) throw new Error('The end date is before the start date.');
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData.user?.id;
       if (!userId) throw new Error('You are signed out.');
@@ -54,8 +58,8 @@ export function TripsScreen({ onOpenTrip }: Props) {
         .insert({
           name: name.trim() || 'Our holiday',
           destination: destination.trim() || null,
-          start_date: startDate,
-          end_date: endDate,
+          start_date: start,
+          end_date: end,
           created_by: userId,
         })
         .select()
@@ -93,10 +97,10 @@ export function TripsScreen({ onOpenTrip }: Props) {
           <Field label="Destination" value={destination} onChangeText={setDestination} placeholder="Ubud, Bali" />
           <View style={styles.row}>
             <View style={styles.flex}>
-              <Field label="Start (YYYY-MM-DD)" value={startDate} onChangeText={setStartDate} autoCapitalize="none" />
+              <Field label="Start (day/month/year)" value={startDate} onChangeText={setStartDate} placeholder="12/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
             </View>
             <View style={styles.flex}>
-              <Field label="End (YYYY-MM-DD)" value={endDate} onChangeText={setEndDate} autoCapitalize="none" />
+              <Field label="End (day/month/year)" value={endDate} onChangeText={setEndDate} placeholder="19/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
             </View>
           </View>
           <Button title="Create trip" onPress={createTrip} loading={creating} />

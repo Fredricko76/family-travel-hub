@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Chip, Field, Notice } from './ui';
 import { colors, spacing } from '../theme';
 import type { ExtractedItem, Extraction } from '../types';
-import { formatTime, KIND_LABEL, shortZone } from '../lib/format';
+import { formatTime, KIND_LABEL, shortZone, toDmy } from '../lib/format';
 import { localDateOf } from '../lib/documents';
 
 type Props = {
@@ -69,7 +69,7 @@ export function ReviewCard({ fileName, extraction, busy, onAccept, onDecline }: 
                 <Chip text={KIND_LABEL[item.kind] ?? item.kind} tone="accent" />
                 {date && (
                   <Text style={styles.when}>
-                    {date}
+                    {toDmy(date)}
                     {item.starts_local ? ` · ${formatTime(item.starts_local, item.starts_tz)}` : ''}
                     {item.starts_tz ? ` ${shortZone(item.starts_tz)}` : ''}
                     {item.ends_local ? ` → ${formatTime(item.ends_local, item.ends_tz)}` : ''}

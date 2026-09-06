@@ -10,7 +10,13 @@ import { confirm } from '../lib/confirm';
 import { ItemEditor } from '../components/ItemEditor';
 import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
 import { utcToLocalParts } from '../lib/time';
-import { formatDayHeading, formatTime, KIND_LABEL, shortZone } from '../lib/format';
+import { GalleryTab } from '../components/GalleryTab';
+import { PeopleTab } from '../components/PeopleTab';
+import { myRole } from '../lib/people';
+import { isAdminRole, type TripRole } from '../types';
+
+type Tab = 'plan' | 'gallery' | 'people';
+import { formatDayHeading, formatTime, KIND_LABEL, shortZone, toDmy } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
 
@@ -39,6 +45,29 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ dayId: string; item: ItineraryItem | null; initial: ItemInput } | null>(null);
   const [savingItem, setSavingItem] = useState(false);
+  const [tab, setTab] = useState<Tab>('plan');
+  const [role, setRole] = useState<TripRole | null>(demo ? 'owner' : null);
+  const [myUserId, setMyUserId] = useState<string | null>(demo ? 'demo-user' : null);
+  const canEdit = isAdminRole(role);
+
+  useEffect(() => {
+    if (demo) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [r, auth] = await Promise.all([myRole(trip), supabase.auth.getUser()]);
+        if (!cancelled) {
+          setRole(r);
+          setMyUserId(auth.data.user?.id ?? null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err, 'Could not check your role on this trip.'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trip.id, demo]);
 
   const load = useCallback(async () => {
     if (demo) return;
@@ -215,7 +244,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
     setEditor({
       dayId: day.id,
       item: null,
-      initial: { kind: 'activity', title: '', date: day.day_date, time: '', tz: inferZone(day, days, items), location: '', notes: '' },
+      initial: { kind: 'activity', title: '', date: toDmy(day.day_date), time: '', tz: inferZone(day, days, items), location: '', notes: '' },
     });
   }
 
@@ -230,7 +259,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       initial: {
         kind: item.kind,
         title: item.title,
-        date: parts?.date ?? day?.day_date ?? trip.start_date,
+        date: toDmy(parts?.date ?? day?.day_date ?? trip.start_date),
         time: parts?.time ?? '',
         tz,
         location: item.location ?? '',
@@ -332,35 +361,62 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         {formatDayHeading(trip.start_date)} to {formatDayHeading(trip.end_date)} · {days.length} days
       </Text>
 
+      <View style={styles.tabs} accessibilityRole="tablist">
+        {(
+          [
+            ['plan', 'Plan'],
+            ['gallery', 'Gallery'],
+            ['people', 'People'],
+          ] as const
+        ).map(([key, label]) => (
+          <Pressable
+            key={key}
+            onPress={() => setTab(key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === key }}
+            style={[styles.tab, tab === key && styles.tabOn]}
+          >
+            <Text style={[styles.tabText, tab === key && styles.tabTextOn]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       {error && <Notice text={error} tone="danger" />}
       {notice && <Notice text={notice} tone="accent" />}
 
-      {review ? (
-        <ReviewCard
-          fileName={review.document.original_name ?? 'Document'}
-          extraction={review.extraction}
-          busy={working === 'accept' || working === 'decline'}
-          onAccept={accept}
-          onDecline={decline}
-        />
-      ) : (
-        <Button
-          title={working === 'upload' ? 'Uploading…' : working === 'extract' ? 'Reading the document…' : 'Upload a booking'}
-          onPress={uploadAndExtract}
-          loading={working === 'upload' || working === 'extract'}
-        />
+      {tab === 'gallery' && <GalleryTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
+      {tab === 'people' && <PeopleTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
+
+      {tab === 'plan' && canEdit && (
+        review ? (
+          <ReviewCard
+            fileName={review.document.original_name ?? 'Document'}
+            extraction={review.extraction}
+            busy={working === 'accept' || working === 'decline'}
+            onAccept={accept}
+            onDecline={decline}
+          />
+        ) : (
+          <Button
+            title={working === 'upload' ? 'Uploading…' : working === 'extract' ? 'Reading the document…' : 'Upload travel plans'}
+            onPress={uploadAndExtract}
+            loading={working === 'upload' || working === 'extract'}
+          />
+        )
       )}
 
-      <Text style={styles.section}>Itinerary</Text>
-      {days.map((day) => {
+      {tab === 'plan' && <Text style={styles.section}>Itinerary</Text>}
+      {tab === 'plan' && days.map((day) => {
         const dayItems = itemsByDay.get(day.id) ?? [];
         return (
           <View key={day.id} style={styles.day}>
             <View style={styles.dayHead}>
               <Text style={styles.dayHeading}>{formatDayHeading(day.day_date)}</Text>
-              <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
-                <Text style={styles.link}>+ Add</Text>
-              </Pressable>
+              {canEdit && (
+                <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
+                  <Text style={styles.link}>+ Add</Text>
+                </Pressable>
+              )}
             </View>
             {dayItems.length === 0 && editor?.dayId !== day.id ? (
               <Text style={styles.dayEmpty}>Nothing planned yet</Text>
@@ -379,14 +435,16 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                     </Text>
                     {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
                   </View>
-                  <View style={styles.itemActions}>
-                    <Pressable onPress={() => openEdit(item)} accessibilityRole="button" hitSlop={8}>
-                      <Text style={styles.link}>Edit</Text>
-                    </Pressable>
-                    <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
-                      <Text style={styles.remove}>Remove</Text>
-                    </Pressable>
-                  </View>
+                  {canEdit && (
+                    <View style={styles.itemActions}>
+                      <Pressable onPress={() => openEdit(item)} accessibilityRole="button" hitSlop={8}>
+                        <Text style={styles.link}>Edit</Text>
+                      </Pressable>
+                      <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
+                        <Text style={styles.remove}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </View>
               ))
             )}
@@ -404,9 +462,9 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         );
       })}
 
-      <Text style={styles.section}>Documents</Text>
-      {documents.length === 0 && <Text style={styles.dayEmpty}>No documents uploaded yet</Text>}
-      {documents.map((doc) => {
+      {tab === 'plan' && canEdit && <Text style={styles.section}>Uploaded plans</Text>}
+      {tab === 'plan' && canEdit && documents.length === 0 && <Text style={styles.dayEmpty}>No documents uploaded yet</Text>}
+      {tab === 'plan' && canEdit && documents.map((doc) => {
         const status = STATUS_LABEL[doc.status];
         return (
           <View key={doc.id} style={styles.doc}>
@@ -429,16 +487,18 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         );
       })}
 
-      <View style={styles.dangerZone}>
-        <Button
-          title="Delete this trip"
-          variant="danger"
-          onPress={removeTrip}
-          loading={working === 'delete'}
-          disabled={working !== null && working !== 'delete'}
-        />
-        <Text style={styles.dangerHint}>Only the trip owner can delete it. Everything in it goes too.</Text>
-      </View>
+      {tab === 'plan' && role === 'owner' && (
+        <View style={styles.dangerZone}>
+          <Button
+            title="Delete this trip"
+            variant="danger"
+            onPress={removeTrip}
+            loading={working === 'delete'}
+            disabled={working !== null && working !== 'delete'}
+          />
+          <Text style={styles.dangerHint}>Everything in this trip goes too, for everyone on it.</Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -452,6 +512,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, fontWeight: '700', color: colors.ink, letterSpacing: -0.5 },
   meta: { color: colors.ink2 },
   section: { fontSize: 20, fontWeight: '700', color: colors.ink, marginTop: spacing.lg },
+  tabs: { flexDirection: 'row', backgroundColor: colors.surface2, borderRadius: 10, padding: 3, marginTop: spacing.xs },
+  tab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  tabOn: { backgroundColor: colors.surface, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
+  tabText: { fontWeight: '600', color: colors.ink2 },
+  tabTextOn: { color: colors.ink },
   day: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: spacing.md, gap: spacing.sm },
   dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dayHeading: { fontWeight: '700', color: colors.ink, fontSize: 15 },

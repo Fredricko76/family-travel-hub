@@ -52,7 +52,7 @@ export function ItemEditor({ initial, title, saving, onSave, onCancel }: Props) 
       <Field label="What" value={form.title} onChangeText={(t) => set({ title: t })} placeholder="Lunch at Locavore" autoFocus />
       <View style={styles.row}>
         <View style={styles.flex}>
-          <Field label="Day (YYYY-MM-DD)" value={form.date} onChangeText={(t) => set({ date: t })} autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+          <Field label="Day (day/month/year)" value={form.date} onChangeText={(t) => set({ date: t })} placeholder="14/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
         </View>
         <View style={styles.flex}>
           <Field label="Time (24h, optional)" value={form.time} onChangeText={(t) => set({ time: t })} placeholder="12:30" autoCapitalize="none" keyboardType="numbers-and-punctuation" />

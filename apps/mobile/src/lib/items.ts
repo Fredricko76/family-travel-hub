@@ -1,11 +1,12 @@
 import { supabase } from './supabase';
 import type { ItemKind, ItineraryDay, ItineraryItem, Trip } from '../types';
-import { DATE_RE, deviceZone, isValidZone, localToUtcIso, TIME_RE } from './time';
+import { deviceZone, isValidZone, localToUtcIso, TIME_RE } from './time';
+import { parseDmy, toDmy } from './format';
 
 export type ItemInput = {
   kind: ItemKind;
   title: string;
-  date: string; // YYYY-MM-DD, must be a day of the trip
+  date: string; // as typed: day/month/year (2026-10-12 also accepted)
   time: string; // HH:MM or '' for no set time
   tz: string; // IANA zone the item is displayed in
   location: string;
@@ -16,9 +17,10 @@ export type ItemInput = {
 export function buildItemRow(trip: Trip, days: ItineraryDay[], input: ItemInput) {
   const title = input.title.trim();
   if (!title) throw new Error('Give the item a title.');
-  if (!DATE_RE.test(input.date)) throw new Error('Date must look like 2026-10-14.');
-  const day = days.find((d) => d.day_date === input.date);
-  if (!day) throw new Error(`${input.date} is outside this trip (${trip.start_date} to ${trip.end_date}).`);
+  const isoDate = parseDmy(input.date);
+  if (!isoDate) throw new Error('Day must be day/month/year, like 14/10/2026.');
+  const day = days.find((d) => d.day_date === isoDate);
+  if (!day) throw new Error(`${toDmy(isoDate)} is outside this trip (${toDmy(trip.start_date)} to ${toDmy(trip.end_date)}).`);
   const time = input.time.trim();
   if (time && !TIME_RE.test(time)) throw new Error('Time must be 24-hour, like 09:30 or 18:00.');
   const tz = input.tz.trim() || deviceZone();
@@ -28,7 +30,7 @@ export function buildItemRow(trip: Trip, days: ItineraryDay[], input: ItemInput)
     day_id: day.id,
     kind: input.kind,
     title,
-    starts_at: time ? localToUtcIso(input.date, time, tz) : null,
+    starts_at: time ? localToUtcIso(isoDate, time, tz) : null,
     starts_tz: tz,
     location: input.location.trim() || null,
     notes: input.notes.trim() || null,

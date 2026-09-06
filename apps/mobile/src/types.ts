@@ -1,5 +1,38 @@
 export type TripRole = 'owner' | 'editor' | 'viewer';
 
+/** What the UI calls the database roles. Owner and editor are both "Admin". */
+export const ROLE_LABEL: Record<TripRole, string> = { owner: 'Admin', editor: 'Admin', viewer: 'Member' };
+export const isAdminRole = (role: TripRole | null | undefined) => role === 'owner' || role === 'editor';
+
+export type Member = {
+  trip_id: string;
+  user_id: string;
+  role: TripRole;
+  is_traveller: boolean;
+  profiles: { display_name: string | null; email: string | null } | null;
+};
+
+export type Invite = {
+  id: string;
+  trip_id: string;
+  email: string;
+  role: TripRole;
+  created_at: string;
+  accepted_at: string | null;
+};
+
+export type Photo = {
+  id: string;
+  trip_id: string;
+  uploaded_by: string;
+  storage_path: string;
+  taken_at: string;
+  caption: string | null;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+};
+
 export type DocumentStatus =
   | 'uploading'
   | 'queued'

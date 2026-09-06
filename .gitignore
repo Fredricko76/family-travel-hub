@@ -8,6 +8,7 @@ web-build/
 .env
 .env.*
 !.env.example
+!.env.production
 
 # Supabase local
 supabase/.branches
