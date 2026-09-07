@@ -41,10 +41,7 @@ export function SignInScreen({ onPreview }: Props) {
         </Pressable>
       }
     >
-      <Notice
-        text="Been sent a link? Just open it. It signs you in on this device and keeps you signed in. This form is for the person who runs the app."
-        tone="accent"
-      />
+      <Notice text="Admin sign-in. Family members don't need this: their link opens the app directly." tone="accent" />
       <Field
         label="EMAIL"
         value={email}

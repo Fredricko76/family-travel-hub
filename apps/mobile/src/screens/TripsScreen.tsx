@@ -81,6 +81,19 @@ export function TripsScreen({ onOpenTrip }: Props) {
     load();
   }, [load]);
 
+  // Family members land straight on the holiday: the trip that's on now,
+  // or the only trip there is. Admins keep the full dashboard.
+  const autoOpened = React.useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || loading || appRole === 'admin' || trips.length === 0) return;
+    const onNow = trips.find((t) => statusOf(t).text === 'On now');
+    const target = onNow ?? (trips.length === 1 ? trips[0] : null);
+    if (target) {
+      autoOpened.current = true;
+      onOpenTrip(target);
+    }
+  }, [loading, appRole, trips]);
+
   async function createTrip() {
     setCreating(true);
     setError(null);
