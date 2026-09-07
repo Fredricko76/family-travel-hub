@@ -4,7 +4,6 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { arrivedFromSignInLink, supabase } from './src/lib/supabase';
 import { SignInScreen } from './src/screens/SignInScreen';
-import { SetPasswordScreen } from './src/screens/SetPasswordScreen';
 import { TripsScreen } from './src/screens/TripsScreen';
 import { TripScreen } from './src/screens/TripScreen';
 import { colors } from './src/theme';
@@ -15,25 +14,22 @@ export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [preview, setPreview] = useState(false);
-  const [needsPassword, setNeedsPassword] = useState(() => arrivedFromSignInLink());
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next);
-      if (event === 'PASSWORD_RECOVERY') setNeedsPassword(true);
-      if (!next) {
-        setTrip(null);
-        setNeedsPassword(false);
+      if (!next) setTrip(null);
+      // Arrived through a sign-in link: the session is stored on this device,
+      // so drop the token from the address bar and carry on. No password needed.
+      if (next && arrivedFromSignInLink() && typeof window !== 'undefined') {
+        window.history.replaceState(null, '', window.location.pathname);
       }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   let screen: React.ReactNode;
-  if (session && needsPassword) {
-    screen = <SetPasswordScreen email={session.user.email ?? null} onDone={() => setNeedsPassword(false)} />;
-  } else if (session === undefined) {
+  if (session === undefined) {
     screen = (
       <View style={styles.center}>
         <ActivityIndicator color={colors.accent} />

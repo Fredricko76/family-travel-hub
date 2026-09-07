@@ -21,7 +21,7 @@ import {
 function LinkCard({ name, link, onClose }: { name: string; link: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const canShare = Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-  const message = `Hi ${name}, here's your link to the family travel hub. Open it and choose a password: ${link}`;
+  const message = `Hi ${name}, here's your link to the family travel hub. Open it on your phone and you're in, no password needed. Then add it to your home screen: ${link}`;
 
   async function copy() {
     try {
@@ -44,7 +44,7 @@ function LinkCard({ name, link, onClose }: { name: string; link: string; onClose
     <View style={styles.linkCard}>
       <Text style={styles.heading}>Send this to {name}</Text>
       <Text style={styles.hint}>
-        It signs them in once and asks them to choose a password. It works for a few days and only once, so send it straight to them.
+        Opening it signs them in on that phone and keeps them signed in, no password. It works once and for about an hour, so send it when they can open it straight away. You can make a new one any time.
       </Text>
       <Text style={styles.linkText} selectable numberOfLines={3}>{link}</Text>
       <View style={styles.linkButtons}>
@@ -215,7 +215,7 @@ export function UsersPanel({ trips, myUserId }: Props) {
           <Text style={styles.heading}>Add a user</Text>
           <Field label="Name" value={name} onChangeText={setName} placeholder="Grandma Sue" autoFocus />
           <Field label="Email" value={email} onChangeText={setEmail} placeholder="sue@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="off" />
-          <Text style={styles.hint}>You'll get a link to send them. They open it and choose their own password.</Text>
+          <Text style={styles.hint}>You'll get a link to send them. Opening it signs them in, and their phone stays signed in.</Text>
           <View style={styles.roles}>
             {(['member', 'admin'] as const).map((r) => (
               <Pressable key={r} onPress={() => setRole(r)} accessibilityRole="radio" accessibilityState={{ selected: role === r }} style={[styles.roleChip, role === r && styles.roleChipOn]}>
@@ -242,7 +242,7 @@ export function UsersPanel({ trips, myUserId }: Props) {
             <Text style={styles.hint}>Admins can see and edit every trip.</Text>
           )}
           <Button title="Save" onPress={saveEdit} loading={busy} />
-          <Button title="New sign-in link (forgot password)" variant="secondary" onPress={() => newLink(editing)} disabled={busy} />
+          <Button title="New sign-in link (new phone or signed out)" variant="secondary" onPress={() => newLink(editing)} disabled={busy} />
           <Button title="Cancel" variant="secondary" onPress={() => setEditing(null)} disabled={busy} />
         </View>
       )}
