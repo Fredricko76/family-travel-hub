@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { UsersPanel } from '../components/UsersPanel';
+import { myAppRole, type AppRole } from '../lib/users';
 import { supabase } from '../lib/supabase';
 import { Button, Chip, Field, Notice } from '../components/ui';
 import { colors, spacing } from '../theme';
@@ -17,6 +19,9 @@ export function TripsScreen({ onOpenTrip }: Props) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [progress, setProgress] = useState<Map<string, { done: number; total: number }>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [appRole, setAppRole] = useState<AppRole>('member');
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [section, setSection] = useState<'trips' | 'users'>('trips');
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +35,13 @@ export function TripsScreen({ onOpenTrip }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    try {
+      const [roleValue, auth] = await Promise.all([myAppRole(), supabase.auth.getUser()]);
+      setAppRole(roleValue);
+      setMyUserId(auth.data.user?.id ?? null);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not check your access.'));
+    }
     const { data, error: loadError } = await supabase
       .from('trips')
       .select('*')
@@ -140,9 +152,36 @@ export function TripsScreen({ onOpenTrip }: Props) {
         </Pressable>
       </View>
 
+      {appRole === 'admin' && (
+        <View style={styles.sections} accessibilityRole="tablist">
+          {(
+            [
+              ['trips', 'Trips'],
+              ['users', 'Users'],
+            ] as const
+          ).map(([key, label]) => (
+            <Pressable
+              key={key}
+              onPress={() => setSection(key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: section === key }}
+              style={[styles.sectionTab, section === key && styles.sectionTabOn]}
+            >
+              <Text style={[styles.sectionText, section === key && styles.sectionTextOn]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {error && <Notice text={error} tone="danger" />}
 
-      {showForm ? (
+      {section === 'users' && appRole === 'admin' ? (
+        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+          <UsersPanel trips={trips} myUserId={myUserId} />
+        </ScrollView>
+      ) : (
+        <>
+      {appRole !== 'admin' ? null : showForm ? (
         <View style={styles.form}>
           <Field label="Trip name" value={name} onChangeText={setName} placeholder="Bali, October" autoFocus />
           <Field label="Destination (optional)" value={destination} onChangeText={setDestination} placeholder="Filled in from your itinerary if left blank" />
@@ -171,7 +210,13 @@ export function TripsScreen({ onOpenTrip }: Props) {
         contentContainerStyle={styles.list}
         columnWrapperStyle={columns > 1 ? styles.rowWrap : undefined}
         ListEmptyComponent={
-          loading ? null : <Text style={styles.empty}>No trips yet. Create one to start uploading bookings.</Text>
+          loading ? null : (
+            <Text style={styles.empty}>
+              {appRole === 'admin'
+                ? 'No trips yet. Create one to start uploading bookings.'
+                : "You're not on any trips yet. Ask the person who set up the app to add you to one."}
+            </Text>
+          )
         }
         renderItem={({ item }) => {
           const status = statusOf(item);
@@ -201,6 +246,8 @@ export function TripsScreen({ onOpenTrip }: Props) {
           );
         }}
       />
+        </>
+      )}
     </View>
   );
 }
@@ -216,6 +263,11 @@ const styles = StyleSheet.create({
   hint: { color: colors.ink3, fontSize: 12 },
   flex: { flex: 1 },
   summary: { color: colors.ink2, fontSize: 14, marginTop: 2 },
+  sections: { flexDirection: 'row', backgroundColor: colors.surface2, borderRadius: 10, padding: 3 },
+  sectionTab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  sectionTabOn: { backgroundColor: colors.ink },
+  sectionText: { fontWeight: '600', color: colors.ink2 },
+  sectionTextOn: { color: '#fff' },
   list: { gap: spacing.md, paddingBottom: spacing.xl },
   rowWrap: { gap: spacing.md },
   empty: { color: colors.ink3, textAlign: 'center', marginTop: spacing.xl },
