@@ -44,9 +44,9 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const [documents, setDocuments] = useState<TripDocument[]>(demo ? demoDocuments : []);
   const [checkIns, setCheckIns] = useState<CheckIn[]>(demo ? demoCheckIns : []);
   const [loading, setLoading] = useState(!demo);
-  const scrollRef = React.useRef<ScrollView>(null);
-  const todayY = React.useRef<number | null>(null);
-  const scrolledToToday = React.useRef(false);
+  const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
+  const stripRef = React.useRef<ScrollView>(null);
+  const dayX = React.useRef<Map<string, number>>(new Map());
   const [working, setWorking] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -123,13 +123,28 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   }, [checkIns]);
   const tripProgress = useMemo(() => progressOf(items, checkIns), [items, checkIns]);
 
-  // Open the plan scrolled to today, once, when the trip is under way.
+  // The day on screen: whichever was tapped, else today while the trip is on, else the first day.
+  const selectedDay = useMemo(
+    () => days.find((d) => d.id === selectedDayId) ?? todayDay ?? days[0] ?? null,
+    [days, selectedDayId, todayDay],
+  );
+  const selectedIndex = selectedDay ? days.findIndex((d) => d.id === selectedDay.id) : -1;
+  function goDay(delta: number) {
+    const next = days[selectedIndex + delta];
+    if (next) {
+      setSelectedDayId(next.id);
+      setEditor(null);
+    }
+  }
+
+  // Keep the selected day visible in the date strip.
   useEffect(() => {
-    if (scrolledToToday.current || tab !== 'plan' || !todayDay || todayY.current === null) return;
-    scrolledToToday.current = true;
-    const y = todayY.current;
-    setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }), 250);
-  }, [tab, todayDay, days.length, items.length]);
+    if (!selectedDay) return;
+    const x = dayX.current.get(selectedDay.id);
+    if (x === undefined) return;
+    const t = setTimeout(() => stripRef.current?.scrollTo({ x: Math.max(0, x - 130), animated: true }), 50);
+    return () => clearTimeout(t);
+  }, [selectedDay, days.length]);
 
   async function toggleCheckIn(item: ItineraryItem) {
     setError(null);
@@ -411,110 +426,28 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
     }
   }
 
-  return (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.screen}
-      contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
-    >
-      <Pressable onPress={onBack} accessibilityRole="button">
-        <Text style={styles.link}>{demo ? '‹ Back to sign in' : '‹ All trips'}</Text>
-      </Pressable>
-      {demo && <Notice text="Sample data. Nothing here is saved. Sign in to plan a real trip." tone="accent" />}
-      <Text style={styles.eyebrow}>{trip.destination?.toUpperCase() ?? 'TRIP'}</Text>
-      <Text style={styles.title}>{trip.name}</Text>
-      <Text style={styles.meta}>
-        {formatDayHeading(trip.start_date)} to {formatDayHeading(trip.end_date)} · {days.length} days
-        {tripProgress.total > 0 ? ` · ${tripProgress.done} of ${tripProgress.total} done` : ''}
-      </Text>
-      {tab === 'plan' && nextItem && (
-        <View style={styles.nextCard}>
-          <Text style={styles.nextLabel}>UP NEXT</Text>
-          <Text style={styles.nextTitle}>{nextItem.title}</Text>
-          <Text style={styles.nextMeta}>
-            {nextItem.starts_at ? `${formatTime(nextItem.starts_at, nextItem.starts_tz)} ${shortZone(nextItem.starts_tz)} time` : 'Today, no set time'}
-            {nextItem.location ? ` · ${nextItem.location}` : ''}
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.tabs} accessibilityRole="tablist">
-        {(
-          [
-            ['plan', 'Plan'],
-            ['gallery', 'Gallery'],
-            ['people', 'People'],
-          ] as const
-        ).map(([key, label]) => (
-          <Pressable
-            key={key}
-            onPress={() => setTab(key)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === key }}
-            style={[styles.tab, tab === key && styles.tabOn]}
-          >
-            <Text style={[styles.tabText, tab === key && styles.tabTextOn]}>{label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {error && <Notice text={error} tone="danger" />}
-      {notice && <Notice text={notice} tone="accent" />}
-
-      {tab === 'gallery' && <GalleryTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
-      {tab === 'people' && <PeopleTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
-
-      {tab === 'plan' && canEdit && !demo && items.length === 0 && !review && (
-        <Notice
-          text="Start by uploading your itinerary or a booking. The dates and the place for each day fill in from what it finds."
-          tone="accent"
-        />
-      )}
-
-      {tab === 'plan' && canEdit && (
-        review ? (
-          <ReviewCard
-            fileName={review.document.original_name ?? 'Document'}
-            extraction={review.extraction}
-            busy={working === 'accept' || working === 'decline'}
-            onAccept={accept}
-            onDecline={decline}
-          />
-        ) : (
-          <Button
-            title={working === 'upload' ? 'Uploading…' : working === 'extract' ? 'Reading the document…' : 'Upload travel plans'}
-            onPress={uploadAndExtract}
-            loading={working === 'upload' || working === 'extract'}
-          />
-        )
-      )}
-
-      {tab === 'plan' && <Text style={styles.section}>Itinerary</Text>}
-      {tab === 'plan' && days.map((day) => {
+  const dayCard = selectedDay
+    ? (() => {
+        const day = selectedDay;
         const dayItems = itemsByDay.get(day.id) ?? [];
         const isToday = day.id === todayDay?.id;
-        const isPast = day.day_date < todayDate;
         const progress = progressOf(dayItems, checkIns);
         return (
-          <View
-            key={day.id}
-            style={[styles.day, isToday && styles.dayToday, isPast && styles.dayPast]}
-            onLayout={isToday ? (e) => { todayY.current = e.nativeEvent.layout.y; } : undefined}
-          >
-            <View style={styles.dayHead}>
-              <Text style={styles.dayHeading}>
-                {formatDayHeading(day.day_date)}
-                {day.headline ? <Text style={styles.dayPlace}> · {day.headline}</Text> : null}
-              </Text>
-              <View style={styles.dayHeadRight}>
-                {isToday && <Chip text="Today" tone="accent" />}
-                {canEdit && (
-                  <Pressable onPress={() => openAdd(day)} accessibilityRole="button" hitSlop={8}>
-                    <Text style={styles.link}>+ Add</Text>
-                  </Pressable>
-                )}
+          <View style={styles.day}>
+            <View style={styles.dayNav}>
+              <Pressable onPress={() => goDay(-1)} disabled={selectedIndex <= 0} accessibilityRole="button" accessibilityLabel="Previous day" hitSlop={8} style={[styles.navButton, selectedIndex <= 0 && styles.navButtonOff]}>
+                <Text style={styles.navText}>‹</Text>
+              </Pressable>
+              <View style={styles.dayHeadCentre}>
+                <Text style={styles.dayHeading}>{formatDayHeading(day.day_date)}</Text>
+                <View style={styles.dayHeadRow}>
+                  {day.headline ? <Text style={styles.dayPlace}>{day.headline}</Text> : null}
+                  {isToday && <Chip text="Today" tone="accent" />}
+                </View>
               </View>
+              <Pressable onPress={() => goDay(1)} disabled={selectedIndex >= days.length - 1} accessibilityRole="button" accessibilityLabel="Next day" hitSlop={8} style={[styles.navButton, selectedIndex >= days.length - 1 && styles.navButtonOff]}>
+                <Text style={styles.navText}>›</Text>
+              </Pressable>
             </View>
             {progress.total > 0 && (
               <View style={styles.progressRow}>
@@ -527,59 +460,59 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
               </View>
             )}
             {dayItems.length === 0 && editor?.dayId !== day.id ? (
-              <Text style={styles.dayEmpty}>Nothing planned yet</Text>
+              <Text style={styles.dayEmpty}>Nothing planned for this day</Text>
             ) : (
               dayItems.map((item) => {
                 const done = checkInByItem.get(item.id) ?? null;
                 const isNext = nextItem?.id === item.id;
                 return (
-                <View key={item.id} style={[styles.item, done && styles.itemDone]}>
-                  <Pressable
-                    onPress={() => toggleCheckIn(item)}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: !!done }}
-                    accessibilityLabel={done ? 'Mark as not done' : 'Check in'}
-                    hitSlop={8}
-                    style={[styles.check, done && styles.checkOn]}
-                  >
-                    {done && <Text style={styles.checkMark}>✓</Text>}
-                  </Pressable>
-                  <Text style={[styles.itemTime, done && styles.textDone]}>
-                    {item.starts_at ? formatTime(item.starts_at, item.starts_tz) : '—'}
-                  </Text>
-                  <View style={styles.flex}>
-                    <View style={styles.itemTitleRow}>
-                      <Text style={[styles.itemTitle, done && styles.textDone]}>{item.title}</Text>
-                      {isNext && !done && <Chip text="Up next" tone="accent" />}
-                    </View>
-                    <Text style={styles.itemMeta}>
-                      {KIND_LABEL[item.kind]}
-                      {item.starts_tz ? ` · ${shortZone(item.starts_tz)} time` : ''}
-                      {item.location ? ` · ${item.location}` : ''}
+                  <View key={item.id} style={styles.item}>
+                    <Pressable
+                      onPress={() => toggleCheckIn(item)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: !!done }}
+                      accessibilityLabel={done ? 'Mark as not done' : 'Check in'}
+                      hitSlop={8}
+                      style={[styles.check, done && styles.checkOn]}
+                    >
+                      {done && <Text style={styles.checkMark}>✓</Text>}
+                    </Pressable>
+                    <Text style={[styles.itemTime, done && styles.textDone]}>
+                      {item.starts_at ? formatTime(item.starts_at, item.starts_tz) : '—'}
                     </Text>
-                    {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
-                    {done && (
-                      <Text style={styles.doneLine}>
-                        Done {formatTime(done.checked_at, item.starts_tz)}
-                        {done.profiles?.display_name ? ` · ${done.profiles.display_name}` : ''}
+                    <View style={styles.flex}>
+                      <View style={styles.itemTitleRow}>
+                        <Text style={[styles.itemTitle, done && styles.textDone]}>{item.title}</Text>
+                        {isNext && !done && <Chip text="Up next" tone="accent" />}
+                      </View>
+                      <Text style={styles.itemMeta}>
+                        {KIND_LABEL[item.kind]}
+                        {item.starts_tz ? ` · ${shortZone(item.starts_tz)} time` : ''}
+                        {item.location ? ` · ${item.location}` : ''}
                       </Text>
+                      {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
+                      {done && (
+                        <Text style={styles.doneLine}>
+                          Done {formatTime(done.checked_at, item.starts_tz)}
+                          {done.profiles?.display_name ? ` · ${done.profiles.display_name}` : ''}
+                        </Text>
+                      )}
+                    </View>
+                    {canEdit && (
+                      <View style={styles.itemActions}>
+                        <Pressable onPress={() => openEdit(item)} accessibilityRole="button" hitSlop={8}>
+                          <Text style={styles.link}>Edit</Text>
+                        </Pressable>
+                        <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
+                          <Text style={styles.remove}>Remove</Text>
+                        </Pressable>
+                      </View>
                     )}
                   </View>
-                  {canEdit && (
-                    <View style={styles.itemActions}>
-                      <Pressable onPress={() => openEdit(item)} accessibilityRole="button" hitSlop={8}>
-                        <Text style={styles.link}>Edit</Text>
-                      </Pressable>
-                      <Pressable onPress={() => removeItem(item)} accessibilityRole="button" hitSlop={8}>
-                        <Text style={styles.remove}>Remove</Text>
-                      </Pressable>
-                    </View>
-                  )}
-                </View>
                 );
               })
             )}
-            {editor?.dayId === day.id && (
+            {editor?.dayId === day.id ? (
               <ItemEditor
                 key={editor.item?.id ?? 'new'}
                 title={editor.item ? 'Edit item' : `Add to ${formatDayHeading(day.day_date)}`}
@@ -588,49 +521,185 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                 onSave={saveEditor}
                 onCancel={() => setEditor(null)}
               />
+            ) : (
+              canEdit && <Button title="Add to this day" variant="secondary" onPress={() => openAdd(day)} />
             )}
           </View>
         );
-      })}
+      })()
+    : null;
 
-      {tab === 'plan' && canEdit && <Text style={styles.section}>Uploaded plans</Text>}
-      {tab === 'plan' && canEdit && documents.length === 0 && <Text style={styles.dayEmpty}>No documents uploaded yet</Text>}
-      {tab === 'plan' && canEdit && documents.map((doc) => {
-        const status = STATUS_LABEL[doc.status];
-        return (
-          <View key={doc.id} style={styles.doc}>
-            <View style={styles.flex}>
-              <Text style={styles.docName} numberOfLines={1}>{doc.original_name ?? 'Document'}</Text>
-              {doc.error_message ? <Text style={styles.docError}>{doc.error_message}</Text> : null}
-            </View>
-            <Chip text={status.text} tone={status.tone} />
-            {doc.status === 'ready_for_review' && !review && (
-              <Pressable onPress={() => reopenReview(doc)} accessibilityRole="button">
-                <Text style={styles.link}>Review</Text>
-              </Pressable>
-            )}
-            {(doc.status === 'failed' || doc.status === 'queued') && !review && working === null && (
-              <Pressable onPress={() => retryExtraction(doc)} accessibilityRole="button">
-                <Text style={styles.link}>Retry</Text>
-              </Pressable>
-            )}
-          </View>
-        );
-      })}
-
-      {tab === 'plan' && role === 'owner' && (
-        <View style={styles.dangerZone}>
-          <Button
-            title="Delete this trip"
-            variant="danger"
-            onPress={removeTrip}
-            loading={working === 'delete'}
-            disabled={working !== null && working !== 'delete'}
-          />
-          <Text style={styles.dangerHint}>Everything in this trip goes too, for everyone on it.</Text>
+  return (
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.container}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      >
+        <View style={styles.topRow}>
+          <Pressable onPress={onBack} accessibilityRole="button" hitSlop={8}>
+            <Text style={styles.link}>{demo ? '‹ Back to sign in' : '‹ All trips'}</Text>
+          </Pressable>
+          {tripProgress.total > 0 && (
+            <Text style={styles.topProgress}>
+              {tripProgress.done} of {tripProgress.total} done
+            </Text>
+          )}
         </View>
-      )}
-    </ScrollView>
+        {demo && <Notice text="Sample data. Nothing here is saved. Sign in to plan a real trip." tone="accent" />}
+        <Text style={styles.title}>{trip.name}</Text>
+        <Text style={styles.meta}>
+          {trip.destination ? `${trip.destination} · ` : ''}
+          {toDmy(trip.start_date)} to {toDmy(trip.end_date)} · {days.length} days
+        </Text>
+
+        {error && <Notice text={error} tone="danger" />}
+        {notice && <Notice text={notice} tone="accent" />}
+
+        {tab === 'gallery' && <GalleryTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
+        {tab === 'people' && <PeopleTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
+
+        {tab === 'plan' && (
+          <>
+            {nextItem && (
+              <Pressable style={styles.nextCard} onPress={() => setSelectedDayId(nextItem.day_id)} accessibilityRole="button">
+                <Text style={styles.nextLabel}>UP NEXT</Text>
+                <Text style={styles.nextTitle}>{nextItem.title}</Text>
+                <Text style={styles.nextMeta}>
+                  {nextItem.starts_at ? `${formatTime(nextItem.starts_at, nextItem.starts_tz)} ${shortZone(nextItem.starts_tz)} time` : 'Today, no set time'}
+                  {nextItem.location ? ` · ${nextItem.location}` : ''}
+                </Text>
+              </Pressable>
+            )}
+
+            {canEdit && !demo && items.length === 0 && !review && (
+              <Notice
+                text="Start by uploading your itinerary or a booking. The dates and the place for each day fill in from what it finds."
+                tone="accent"
+              />
+            )}
+
+            {canEdit &&
+              (review ? (
+                <ReviewCard
+                  fileName={review.document.original_name ?? 'Document'}
+                  extraction={review.extraction}
+                  busy={working === 'accept' || working === 'decline'}
+                  onAccept={accept}
+                  onDecline={decline}
+                />
+              ) : (
+                <Button
+                  title={working === 'upload' ? 'Uploading…' : working === 'extract' ? 'Reading the document…' : 'Upload travel plans'}
+                  onPress={uploadAndExtract}
+                  loading={working === 'upload' || working === 'extract'}
+                />
+              ))}
+
+            {days.length > 0 && (
+              <ScrollView
+                ref={stripRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.strip}
+                style={styles.stripWrap}
+              >
+                {days.map((day) => {
+                  const selected = day.id === selectedDay?.id;
+                  const isToday = day.id === todayDay?.id;
+                  const has = (itemsByDay.get(day.id)?.length ?? 0) > 0;
+                  const [, m, d] = day.day_date.split('-');
+                  const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${day.day_date}T00:00:00Z`));
+                  return (
+                    <Pressable
+                      key={day.id}
+                      onPress={() => setSelectedDayId(day.id)}
+                      onLayout={(e) => dayX.current.set(day.id, e.nativeEvent.layout.x)}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={formatDayHeading(day.day_date)}
+                      style={[styles.dayChip, selected && styles.dayChipOn, isToday && !selected && styles.dayChipToday]}
+                    >
+                      <Text style={[styles.dayChipWeekday, selected && styles.dayChipTextOn]}>{weekday}</Text>
+                      <Text style={[styles.dayChipNumber, selected && styles.dayChipTextOn]}>{Number(d)}</Text>
+                      <Text style={[styles.dayChipMonth, selected && styles.dayChipTextOn]}>
+                        {new Intl.DateTimeFormat('en-AU', { month: 'short', timeZone: 'UTC' }).format(new Date(`${day.day_date}T00:00:00Z`))}
+                      </Text>
+                      <View style={[styles.dayChipDot, has && (selected ? styles.dayChipDotOn : styles.dayChipDotHas)]} />
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {dayCard}
+
+            {canEdit && (
+              <View style={styles.docsSection}>
+                <Text style={styles.section}>Uploaded plans</Text>
+                {documents.length === 0 && <Text style={styles.dayEmpty}>No documents uploaded yet</Text>}
+                {documents.map((doc) => {
+                  const status = STATUS_LABEL[doc.status];
+                  return (
+                    <View key={doc.id} style={styles.doc}>
+                      <View style={styles.flex}>
+                        <Text style={styles.docName} numberOfLines={1}>{doc.original_name ?? 'Document'}</Text>
+                        {doc.error_message ? <Text style={styles.docError}>{doc.error_message}</Text> : null}
+                      </View>
+                      <Chip text={status.text} tone={status.tone} />
+                      {doc.status === 'ready_for_review' && !review && (
+                        <Pressable onPress={() => reopenReview(doc)} accessibilityRole="button">
+                          <Text style={styles.link}>Review</Text>
+                        </Pressable>
+                      )}
+                      {(doc.status === 'failed' || doc.status === 'queued') && !review && working === null && (
+                        <Pressable onPress={() => retryExtraction(doc)} accessibilityRole="button">
+                          <Text style={styles.link}>Retry</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {role === 'owner' && (
+              <View style={styles.dangerZone}>
+                <Button
+                  title="Delete this trip"
+                  variant="danger"
+                  onPress={removeTrip}
+                  loading={working === 'delete'}
+                  disabled={working !== null && working !== 'delete'}
+                />
+                <Text style={styles.dangerHint}>Everything in this trip goes too, for everyone on it.</Text>
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
+
+      <View style={styles.tabBar} accessibilityRole="tablist">
+        {(
+          [
+            ['plan', 'Plan'],
+            ['gallery', 'Gallery'],
+            ['people', 'People'],
+          ] as const
+        ).map(([key, label]) => (
+          <Pressable
+            key={key}
+            onPress={() => setTab(key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === key }}
+            style={styles.tab}
+          >
+            <View style={[styles.tabDot, tab === key && styles.tabDotOn]} />
+            <Text style={[styles.tabText, tab === key && styles.tabTextOn]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -643,11 +712,41 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, fontWeight: '700', color: colors.ink, letterSpacing: -0.5 },
   meta: { color: colors.ink2 },
   section: { fontSize: 20, fontWeight: '700', color: colors.ink, marginTop: spacing.lg },
-  tabs: { flexDirection: 'row', backgroundColor: colors.surface2, borderRadius: 10, padding: 3, marginTop: spacing.xs },
-  tab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  tabOn: { backgroundColor: colors.surface, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
-  tabText: { fontWeight: '600', color: colors.ink2 },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  topProgress: { color: colors.ink2, fontSize: 13, fontVariant: ['tabular-nums'] },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: 8,
+    paddingBottom: 22,
+    paddingHorizontal: spacing.sm,
+  },
+  tab: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 4 },
+  tabDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'transparent' },
+  tabDotOn: { backgroundColor: colors.ink },
+  tabText: { fontWeight: '600', color: colors.ink3, fontSize: 13 },
   tabTextOn: { color: colors.ink },
+  stripWrap: { marginHorizontal: -spacing.lg },
+  strip: { paddingHorizontal: spacing.lg, gap: 6 },
+  dayChip: { width: 54, paddingVertical: 8, borderRadius: 12, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, gap: 1 },
+  dayChipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  dayChipToday: { borderColor: colors.ink, borderWidth: 2 },
+  dayChipWeekday: { fontSize: 11, color: colors.ink3, fontWeight: '600' },
+  dayChipNumber: { fontSize: 18, color: colors.ink, fontWeight: '700' },
+  dayChipMonth: { fontSize: 10, color: colors.ink3 },
+  dayChipTextOn: { color: '#fff' },
+  dayChipDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'transparent', marginTop: 2 },
+  dayChipDotHas: { backgroundColor: colors.ink3 },
+  dayChipDotOn: { backgroundColor: '#fff' },
+  dayNav: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  navButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' },
+  navButtonOff: { opacity: 0.3 },
+  navText: { fontSize: 22, color: colors.ink, lineHeight: 24, marginTop: -2 },
+  dayHeadCentre: { flex: 1, alignItems: 'center', gap: 2 },
+  dayHeadRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  docsSection: { gap: spacing.sm, marginTop: spacing.md },
   day: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: spacing.md, gap: spacing.sm },
   dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
   dayHeadRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
