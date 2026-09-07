@@ -1,21 +1,66 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Chip, Field, Notice } from './ui';
 import { colors, spacing } from '../theme';
 import type { Trip } from '../types';
 import { confirm } from '../lib/confirm';
 import { errorMessage } from '../lib/errors';
 import {
-  createUser,
   deleteUser,
+  inviteUser,
   listUsers,
-  resetPassword,
   setAppRole,
   setUserTrips,
+  signInLink,
   type AppRole,
   type AppUser,
   type TripAssignment,
 } from '../lib/users';
+
+/** Shows a sign-in link with Copy and Share, for the admin to pass on. */
+function LinkCard({ name, link, onClose }: { name: string; link: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const canShare = Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const message = `Hi ${name}, here's your link to the family travel hub. Open it and choose a password: ${link}`;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  async function share() {
+    try {
+      await navigator.share({ title: 'Family Travel Hub', text: message });
+    } catch {
+      // cancelled
+    }
+  }
+
+  return (
+    <View style={styles.linkCard}>
+      <Text style={styles.heading}>Send this to {name}</Text>
+      <Text style={styles.hint}>
+        It signs them in once and asks them to choose a password. It works for a few days and only once, so send it straight to them.
+      </Text>
+      <Text style={styles.linkText} selectable numberOfLines={3}>{link}</Text>
+      <View style={styles.linkButtons}>
+        <View style={styles.flex}>
+          <Button title={copied ? 'Copied' : 'Copy message'} onPress={copy} />
+        </View>
+        {canShare && (
+          <View style={styles.flex}>
+            <Button title="Share…" variant="secondary" onPress={share} />
+          </View>
+        )}
+      </View>
+      <Button title="Done" variant="secondary" onPress={onClose} />
+    </View>
+  );
+}
 
 type Props = { trips: Trip[]; myUserId: string | null };
 
@@ -56,10 +101,9 @@ export function UsersPanel({ trips, myUserId }: Props) {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [role, setRole] = useState<AppRole>('member');
   const [assign, setAssign] = useState<TripAssignment[]>([]);
-  const [newPassword, setNewPassword] = useState('');
+  const [linkResult, setLinkResult] = useState<{ name: string; link: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -76,7 +120,6 @@ export function UsersPanel({ trips, myUserId }: Props) {
   function resetForm() {
     setName('');
     setEmail('');
-    setPassword('');
     setRole('member');
     setAssign([]);
     setShowForm(false);
@@ -87,8 +130,8 @@ export function UsersPanel({ trips, myUserId }: Props) {
     setNotice(null);
     setBusy(true);
     try {
-      await createUser({ email, display_name: name, password, app_role: role, trips: assign });
-      setNotice(`${name.trim()} can now sign in with ${email.trim().toLowerCase()} and the password you set. Pass it on to them.`);
+      const result = await inviteUser({ email, display_name: name, app_role: role, trips: assign });
+      setLinkResult({ name: name.trim(), link: result.link });
       resetForm();
       await load();
     } catch (err) {
@@ -103,7 +146,6 @@ export function UsersPanel({ trips, myUserId }: Props) {
     setNotice(null);
     setEditing(u);
     setAssign(u.trips.filter((t) => t.role !== 'owner').map((t) => ({ trip_id: t.trip_id, role: t.role === 'editor' ? 'editor' : 'viewer' })));
-    setNewPassword('');
   }
 
   async function saveEdit() {
@@ -112,12 +154,26 @@ export function UsersPanel({ trips, myUserId }: Props) {
     setError(null);
     try {
       await setUserTrips(editing.id, assign);
-      if (newPassword) await resetPassword(editing.id, newPassword);
       setNotice(`${editing.display_name ?? editing.email} updated.`);
       setEditing(null);
       await load();
     } catch (err) {
       setError(errorMessage(err, 'Could not save.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function newLink(u: AppUser) {
+    setError(null);
+    setNotice(null);
+    setBusy(true);
+    try {
+      const result = await signInLink(u.id);
+      setEditing(null);
+      setLinkResult({ name: u.display_name ?? u.email ?? 'them', link: result.link });
+    } catch (err) {
+      setError(errorMessage(err, 'Could not make a link.'));
     } finally {
       setBusy(false);
     }
@@ -152,13 +208,14 @@ export function UsersPanel({ trips, myUserId }: Props) {
       {error && <Notice text={error} tone="danger" />}
       {notice && <Notice text={notice} tone="accent" />}
 
+      {linkResult && <LinkCard name={linkResult.name} link={linkResult.link} onClose={() => setLinkResult(null)} />}
+
       {showForm ? (
         <View style={styles.card}>
           <Text style={styles.heading}>Add a user</Text>
           <Field label="Name" value={name} onChangeText={setName} placeholder="Grandma Sue" autoFocus />
           <Field label="Email" value={email} onChangeText={setEmail} placeholder="sue@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="off" />
-          <Field label="Starting password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" autoCapitalize="none" autoComplete="off" />
-          <Text style={styles.hint}>They sign in with this email and password. Tell them the password yourself.</Text>
+          <Text style={styles.hint}>You'll get a link to send them. They open it and choose their own password.</Text>
           <View style={styles.roles}>
             {(['member', 'admin'] as const).map((r) => (
               <Pressable key={r} onPress={() => setRole(r)} accessibilityRole="radio" accessibilityState={{ selected: role === r }} style={[styles.roleChip, role === r && styles.roleChipOn]}>
@@ -168,7 +225,7 @@ export function UsersPanel({ trips, myUserId }: Props) {
           </View>
           <Text style={styles.hint}>{ROLE_HINT[role]}</Text>
           {role === 'member' && <TripPicker trips={trips} value={assign} onChange={setAssign} />}
-          <Button title="Add user" onPress={add} loading={busy} disabled={!name.trim() || !email.trim() || password.length < 6} />
+          <Button title="Add user and make their link" onPress={add} loading={busy} disabled={!name.trim() || !email.trim()} />
           <Button title="Cancel" variant="secondary" onPress={resetForm} disabled={busy} />
         </View>
       ) : (
@@ -184,8 +241,8 @@ export function UsersPanel({ trips, myUserId }: Props) {
           ) : (
             <Text style={styles.hint}>Admins can see and edit every trip.</Text>
           )}
-          <Field label="New password (optional)" value={newPassword} onChangeText={setNewPassword} placeholder="Leave blank to keep the current one" autoCapitalize="none" autoComplete="off" />
           <Button title="Save" onPress={saveEdit} loading={busy} />
+          <Button title="New sign-in link (forgot password)" variant="secondary" onPress={() => newLink(editing)} disabled={busy} />
           <Button title="Cancel" variant="secondary" onPress={() => setEditing(null)} disabled={busy} />
         </View>
       )}
@@ -253,4 +310,7 @@ const styles = StyleSheet.create({
   meta: { color: colors.ink3, fontSize: 12 },
   link: { color: colors.ink, fontWeight: '600', fontSize: 12 },
   remove: { color: colors.ink3, fontSize: 12 },
+  linkCard: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 2, borderColor: colors.ink, padding: spacing.md, gap: spacing.sm },
+  linkText: { fontFamily: Platform.OS === 'web' ? 'monospace' : undefined, fontSize: 11, color: colors.ink2, backgroundColor: colors.surface2, padding: spacing.sm, borderRadius: 6 },
+  linkButtons: { flexDirection: 'row', gap: spacing.sm },
 });

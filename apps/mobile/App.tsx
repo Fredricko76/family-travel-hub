@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from './src/lib/supabase';
+import { arrivedFromSignInLink, supabase } from './src/lib/supabase';
 import { SignInScreen } from './src/screens/SignInScreen';
+import { SetPasswordScreen } from './src/screens/SetPasswordScreen';
 import { TripsScreen } from './src/screens/TripsScreen';
 import { TripScreen } from './src/screens/TripScreen';
 import { colors } from './src/theme';
@@ -14,18 +15,25 @@ export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [preview, setPreview] = useState(false);
+  const [needsPassword, setNeedsPassword] = useState(() => arrivedFromSignInLink());
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
-      if (!next) setTrip(null);
+      if (event === 'PASSWORD_RECOVERY') setNeedsPassword(true);
+      if (!next) {
+        setTrip(null);
+        setNeedsPassword(false);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   let screen: React.ReactNode;
-  if (session === undefined) {
+  if (session && needsPassword) {
+    screen = <SetPasswordScreen email={session.user.email ?? null} onDone={() => setNeedsPassword(false)} />;
+  } else if (session === undefined) {
     screen = (
       <View style={styles.center}>
         <ActivityIndicator color={colors.accent} />

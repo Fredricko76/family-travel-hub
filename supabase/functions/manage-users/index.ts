@@ -83,6 +83,57 @@ Deno.serve(async (req) => {
       return json({ user_id: newId });
     }
 
+    // Invite by link: creates the account (no password yet) and returns a
+    // one-time sign-in link the admin can send any way they like. Opening it
+    // signs the person in and the app asks them to choose a password.
+    if (body.action === "invite") {
+      const email = String(body.email ?? "").trim().toLowerCase();
+      const displayName = String(body.display_name ?? "").trim();
+      const appRole = body.app_role === "admin" ? "admin" : "member";
+      const trips = (Array.isArray(body.trips) ? body.trips : []) as TripAssignment[];
+      const redirectTo = String(body.redirect_to ?? "");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("That does not look like an email address.");
+      if (!displayName) throw new Error("Give the person a name.");
+      if (!/^https?:\/\//.test(redirectTo)) throw new Error("Missing app address for the link.");
+
+      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+        type: "invite",
+        email,
+        options: { data: { display_name: displayName }, redirectTo },
+      });
+      if (linkError) throw linkError;
+      const newId = linkData.user.id;
+
+      await admin.from("profiles").update({ app_role: appRole, display_name: displayName }).eq("id", newId);
+      if (trips.length > 0) {
+        const rows = trips.map((t) => ({
+          trip_id: t.trip_id,
+          user_id: newId,
+          role: t.role === "editor" ? "editor" : "viewer",
+          is_traveller: true,
+        }));
+        const { error: memberError } = await admin.from("trip_members").upsert(rows, { onConflict: "trip_id,user_id" });
+        if (memberError) throw memberError;
+      }
+      return json({ user_id: newId, link: linkData.properties.action_link });
+    }
+
+    // A fresh sign-in link for an existing user (forgotten password, lost link).
+    if (body.action === "sign_in_link") {
+      const userId = String(body.user_id ?? "");
+      const redirectTo = String(body.redirect_to ?? "");
+      if (!/^https?:\/\//.test(redirectTo)) throw new Error("Missing app address for the link.");
+      const { data: userRow, error: getError } = await admin.auth.admin.getUserById(userId);
+      if (getError || !userRow.user?.email) throw new Error("That user could not be found.");
+      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+        type: "recovery",
+        email: userRow.user.email,
+        options: { redirectTo },
+      });
+      if (linkError) throw linkError;
+      return json({ link: linkData.properties.action_link });
+    }
+
     if (body.action === "set_role") {
       const userId = String(body.user_id ?? "");
       const appRole = body.app_role === "admin" ? "admin" : "member";

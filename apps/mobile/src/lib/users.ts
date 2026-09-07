@@ -63,6 +63,22 @@ export function createUser(input: {
   return call<{ user_id: string }>({ action: 'create', ...input });
 }
 
+/** Where sign-in links should land: this app's own address on the web. */
+function appAddress(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
+  return 'https://family-travel-hub.netlify.app';
+}
+
+/** Create the account and get a one-time sign-in link to send them. */
+export function inviteUser(input: { email: string; display_name: string; app_role: AppRole; trips: TripAssignment[] }) {
+  return call<{ user_id: string; link: string }>({ action: 'invite', ...input, redirect_to: appAddress() });
+}
+
+/** A fresh sign-in link for an existing user who has lost theirs or forgotten the password. */
+export function signInLink(userId: string) {
+  return call<{ link: string }>({ action: 'sign_in_link', user_id: userId, redirect_to: appAddress() });
+}
+
 export function setAppRole(userId: string, appRole: AppRole) {
   return call<{ ok: true }>({ action: 'set_role', user_id: userId, app_role: appRole });
 }
