@@ -9,7 +9,7 @@ execSync('npx expo export --platform web', { stdio: 'inherit' });
 copyFileSync('assets/icon.png', 'dist/icon.png');
 
 const headTags = [
-  '<meta name="theme-color" content="#0E7C7B">',
+  '<meta name="theme-color" content="#111111">',
   '<meta name="apple-mobile-web-app-capable" content="yes">',
   '<meta name="apple-mobile-web-app-status-bar-style" content="default">',
   '<meta name="apple-mobile-web-app-title" content="Travel Hub">',

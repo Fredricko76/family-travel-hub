@@ -4,8 +4,8 @@
   "description": "Upload the bookings once. Everyone on the trip sees the plan.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F3F5F7",
-  "theme_color": "#0E7C7B",
+  "background_color": "#F4F4F4",
+  "theme_color": "#111111",
   "icons": [
     { "src": "/icon.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
   ]

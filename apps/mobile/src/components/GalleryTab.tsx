@@ -215,6 +215,6 @@ const styles = StyleSheet.create({
   viewerImage: { width: '100%', height: '80%' },
   viewerBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.lg, gap: spacing.lg },
   viewerText: { color: '#fff', flex: 1 },
-  viewerDelete: { color: '#FF8A80', fontWeight: '600' },
+  viewerDelete: { color: '#FFFFFF', fontWeight: '600', textDecorationLine: 'underline' },
   viewerClose: { color: '#fff', fontWeight: '600' },
 });
