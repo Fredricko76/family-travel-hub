@@ -25,6 +25,9 @@ const KNOWN_TITLES: Record<string, string> = {
   'san francisco': 'San Francisco',
   'ubud': 'Ubud',
   'denpasar': 'Denpasar',
+  'caribbean sea': 'Caribbean Sea',
+  'at sea': 'Caribbean Sea',
+  'celebrity xcel': 'Celebrity Xcel',
 };
 
 async function searchTitle(query: string): Promise<string | null> {

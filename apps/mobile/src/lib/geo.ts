@@ -62,7 +62,10 @@ export async function geocodeMissing(items: ItineraryItem[]): Promise<ItineraryI
   return changed;
 }
 
-export type Leg = { metres: number; seconds: number; mode: 'car' | 'walk'; straightLine: boolean };
+export type Leg = { metres: number; driveSeconds: number; walkSeconds: number; straightLine: boolean };
+
+const WALK_METRES_PER_SECOND = 1.3; // an easy family pace
+const WALKABLE_METRES = 3000; // show a walking time up to this distance
 
 const legCache = new Map<string, Leg | null>();
 
@@ -90,25 +93,31 @@ export async function legBetween(a: { lat: number; lng: number }, b: { lat: numb
     const data = res.ok ? ((await res.json()) as { routes?: { distance: number; duration: number }[] }) : null;
     const route = data?.routes?.[0];
     if (route) {
-      const walk = route.distance < 1500;
-      leg = { metres: route.distance, seconds: walk ? route.distance / 1.3 : route.duration, mode: walk ? 'walk' : 'car', straightLine: false };
+      leg = { metres: route.distance, driveSeconds: route.duration, walkSeconds: route.distance / WALK_METRES_PER_SECOND, straightLine: false };
     } else {
       throw new Error('no route');
     }
   } catch {
-    const walk = straight < 1200;
-    leg = { metres: straight, seconds: walk ? straight / 1.3 : (straight / 1000 / 45) * 3600, mode: walk ? 'walk' : 'car', straightLine: true };
+    leg = { metres: straight, driveSeconds: (straight / 1000 / 45) * 3600, walkSeconds: straight / WALK_METRES_PER_SECOND, straightLine: true };
   }
   legCache.set(key, leg);
   return leg;
 }
 
-export function describeLeg(leg: Leg): string {
+/** The two halves of a leg line: "12 km" and "about 20 min by car". */
+export function legParts(leg: Leg): { distance: string; time: string; note: string } {
   const km = leg.metres / 1000;
   const distance = km < 1 ? `${Math.round(leg.metres / 10) * 10} m` : km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
-  const mins = Math.max(1, Math.round(leg.seconds / 60));
-  const time =
-    mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60} min` : ''}`.trim();
-  const how = leg.mode === 'walk' ? `about a ${time} walk` : `about ${time} by car`;
-  return `${distance} · ${how}${leg.straightLine ? ' (straight line)' : ''}`;
+  const clock = (seconds: number) => {
+    const mins = Math.max(1, Math.round(seconds / 60));
+    return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60} min` : ''}`.trim();
+  };
+  const car = `${clock(leg.driveSeconds)} by car`;
+  const time = leg.metres <= WALKABLE_METRES ? `about ${clock(leg.walkSeconds)} on foot or ${car}` : `about ${car}`;
+  return { distance, time, note: leg.straightLine ? ' (straight line)' : '' };
+}
+
+export function describeLeg(leg: Leg): string {
+  const p = legParts(leg);
+  return `${p.distance} · ${p.time}${p.note}`;
 }

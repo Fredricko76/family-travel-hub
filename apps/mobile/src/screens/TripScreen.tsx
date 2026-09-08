@@ -12,7 +12,8 @@ import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from 
 import { utcToLocalParts } from '../lib/time';
 import { GalleryTab } from '../components/GalleryTab';
 import { PlaceBanner } from '../components/PlaceBanner';
-import { describeLeg, geocodeMissing, legBetween, type Leg } from '../lib/geo';
+import { geocodeMissing, legBetween, legParts, type Leg } from '../lib/geo';
+import { cruiseDayFor, isCruise } from '../lib/cruise';
 import type { CheckIn } from '../types';
 import { checkIn, listCheckIns, progressOf, todayInTrip, undoCheckIn, upNext } from '../lib/checkins';
 import { deviceZone } from '../lib/time';
@@ -262,7 +263,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       }
     };
     for (const stay of items) {
-      if (stay.kind !== 'stay' || !stay.starts_at || !stay.ends_at) continue;
+      if (!(stay.kind === 'stay' || isCruise(stay)) || !stay.starts_at || !stay.ends_at) continue;
       const from = localDate(stay.starts_at, stay.starts_tz);
       const to = localDate(stay.ends_at, stay.ends_tz ?? stay.starts_tz);
       for (const day of days) {
@@ -515,6 +516,8 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         const dayItems = itemsByDay.get(day.id) ?? [];
         const isToday = day.id === todayDay?.id;
         const progress = progressOf(dayItems.filter((i) => !i.base), checkIns);
+        const cruise = cruiseDayFor(day, items);
+        const placeToday = cruise ? (cruise.port ?? 'At sea') : day.headline;
         return (
           <View style={styles.day}>
             <View style={styles.dayNav}>
@@ -524,7 +527,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
               <View style={styles.dayHeadCentre}>
                 <Text style={styles.dayHeading}>{formatDayHeading(day.day_date)}</Text>
                 <View style={styles.dayHeadRow}>
-                  {day.headline ? <Text style={styles.dayPlace}>{day.headline}</Text> : null}
+                  {placeToday ? <Text style={styles.dayPlace}>{placeToday}</Text> : null}
                   {isToday && <Chip text="Today" tone="accent" />}
                 </View>
               </View>
@@ -532,7 +535,15 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                 <Text style={styles.navText}>›</Text>
               </Pressable>
             </View>
-            <PlaceBanner place={day.headline} hint={trip.destination} caption={formatDayHeading(day.day_date)} />
+            {cruise ? (
+              <PlaceBanner
+                place={cruise.shipName}
+                caption={cruise.boarding ? 'Boarding today' : cruise.leaving ? 'Disembark today' : 'Your ship'}
+                second={{ place: cruise.port ?? 'At sea', hint: trip.destination, caption: cruise.port ? 'Port call' : 'A day at sea' }}
+              />
+            ) : (
+              <PlaceBanner place={day.headline} hint={trip.destination} caption={formatDayHeading(day.day_date)} />
+            )}
             {progress.total > 0 && (
               <View style={styles.progressRow}>
                 <View style={styles.progressTrack}>
@@ -555,7 +566,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                   <React.Fragment key={item.id}>
                   {leg && (
                     <View style={styles.leg}>
-                      <Text style={styles.legText}>↓ {describeLeg(leg)}</Text>
+                      <Text style={styles.legText}>↓ {legParts(leg).distance} · <Text style={styles.legTime}>{legParts(leg).time}</Text>{legParts(leg).note}</Text>
                     </View>
                   )}
                   {item.base ? (
@@ -891,7 +902,8 @@ const styles = StyleSheet.create({
   baseMark: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   baseMarkText: { color: '#fff', fontSize: 14, lineHeight: 16, fontWeight: '700' },
   leg: { paddingLeft: 32, paddingTop: 6 },
-  legText: { color: colors.ink3, fontSize: 12, fontStyle: 'italic' },
+  legText: { color: colors.ink2, fontSize: 12 },
+  legTime: { color: colors.accent, fontWeight: '800', fontSize: 13 },
   itemNotes: { color: colors.ink3, fontSize: 12, marginTop: 2 },
   doc: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.line, padding: spacing.md },
   docName: { color: colors.ink, fontWeight: '600' },
