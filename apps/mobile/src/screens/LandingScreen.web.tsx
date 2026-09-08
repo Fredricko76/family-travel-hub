@@ -1,13 +1,13 @@
 import React from 'react';
 import { landing } from '../landing';
 
-type Props = { dates: string | null; onEnter: () => void };
+type Props = { dates: string | null; onEnter: () => void; onTasks: () => void };
 
 /**
  * Full-screen welcome page for the web build: an American skyline at sunset in
  * red, white, blue and gold, the family's name, and one button into the plan.
  */
-export function LandingScreen({ dates, onEnter }: Props) {
+export function LandingScreen({ dates, onEnter, onTasks }: Props) {
   return (
     <div style={styles.root} role="main">
       <svg viewBox="0 0 800 1200" preserveAspectRatio="xMidYMid slice" style={styles.scene} aria-hidden="true">
@@ -99,6 +99,9 @@ export function LandingScreen({ dates, onEnter }: Props) {
         <button type="button" onClick={onEnter} style={styles.button}>
           {landing.enter}
         </button>
+        <button type="button" onClick={onTasks} style={styles.buttonSecondary}>
+          {landing.tasks}
+        </button>
       </div>
     </div>
   );
@@ -149,5 +152,19 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
     cursor: 'pointer',
     fontFamily: 'inherit',
+  },
+  buttonSecondary: {
+    marginTop: 14,
+    padding: '15px 28px',
+    fontSize: 17,
+    fontWeight: 700,
+    color: '#fff',
+    background: 'rgba(11,31,77,0.55)',
+    border: '2px solid rgba(255,255,255,0.85)',
+    borderRadius: 999,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textShadow: 'none',
   },
 };

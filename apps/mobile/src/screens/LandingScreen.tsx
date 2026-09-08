@@ -2,10 +2,10 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { landing } from '../landing';
 
-type Props = { dates: string | null; onEnter: () => void };
+type Props = { dates: string | null; onEnter: () => void; onTasks: () => void };
 
 /** Native fallback for the welcome page; the web build uses LandingScreen.web.tsx. */
-export function LandingScreen({ dates, onEnter }: Props) {
+export function LandingScreen({ dates, onEnter, onTasks }: Props) {
   return (
     <View style={styles.root}>
       <Text style={styles.family}>{landing.family.toUpperCase()}</Text>
@@ -15,6 +15,9 @@ export function LandingScreen({ dates, onEnter }: Props) {
       <Text style={styles.tagline}>{landing.tagline}</Text>
       <Pressable onPress={onEnter} accessibilityRole="button" style={styles.button}>
         <Text style={styles.buttonText}>{landing.enter}</Text>
+      </Pressable>
+      <Pressable onPress={onTasks} accessibilityRole="button" style={styles.buttonSecondary}>
+        <Text style={styles.buttonSecondaryText}>{landing.tasks}</Text>
       </Pressable>
     </View>
   );
@@ -29,4 +32,6 @@ const styles = StyleSheet.create({
   tagline: { color: 'rgba(255,255,255,0.85)', textAlign: 'center', maxWidth: 320 },
   button: { marginTop: 24, backgroundColor: '#FFE08A', borderRadius: 999, paddingVertical: 18, paddingHorizontal: 30 },
   buttonText: { color: '#0B1F4D', fontWeight: '700', fontSize: 18 },
+  buttonSecondary: { marginTop: 6, borderWidth: 2, borderColor: 'rgba(255,255,255,0.85)', borderRadius: 999, paddingVertical: 15, paddingHorizontal: 28 },
+  buttonSecondaryText: { color: '#fff', fontWeight: '700', fontSize: 17 },
 });

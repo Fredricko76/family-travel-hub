@@ -32,6 +32,17 @@ export type CheckIn = {
   profiles?: { display_name: string | null } | null;
 };
 
+export type Task = {
+  id: string;
+  trip_id: string;
+  title: string;
+  done: boolean;
+  done_at: string | null;
+  done_by: string | null;
+  position: number;
+  created_at: string;
+};
+
 export type Photo = {
   id: string;
   trip_id: string;

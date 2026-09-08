@@ -10,6 +10,7 @@ import { colors } from './src/theme';
 import type { Trip } from './src/types';
 import { demoTrip } from './src/demo';
 import { LandingScreen } from './src/screens/LandingScreen';
+import { TasksScreen } from './src/screens/TasksScreen';
 import { formatDayHeading } from './src/lib/format';
 
 export default function App() {
@@ -17,18 +18,23 @@ export default function App() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [preview, setPreview] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
-  const [entered, setEntered] = useState(false);
+  const [view, setView] = useState<'welcome' | 'plan' | 'tasks'>('welcome');
   const [landingDates, setLandingDates] = useState<string | null>(null);
+  // The trip the welcome page is about; its task list opens from there too.
+  const [landingTripId, setLandingTripId] = useState<string | null>(null);
 
   // Dates for the welcome page: the trip that's on now, else the next one coming up.
   useEffect(() => {
     if (!session) return;
     (async () => {
-      const { data } = await supabase.from('trips').select('name, start_date, end_date').order('start_date');
+      const { data } = await supabase.from('trips').select('id, name, start_date, end_date').order('start_date');
       const today = new Date().toISOString().slice(0, 10);
-      const list = (data ?? []) as { name: string; start_date: string; end_date: string }[];
+      const list = (data ?? []) as { id: string; name: string; start_date: string; end_date: string }[];
       const pick = list.find((t) => t.start_date <= today && t.end_date >= today) ?? list.find((t) => t.start_date > today) ?? list[list.length - 1];
-      if (pick) setLandingDates(`${formatDayHeading(pick.start_date)} to ${formatDayHeading(pick.end_date)}`);
+      if (pick) {
+        setLandingDates(`${formatDayHeading(pick.start_date)} to ${formatDayHeading(pick.end_date)}`);
+        setLandingTripId(pick.id);
+      }
     })();
   }, [session]);
 
@@ -66,8 +72,10 @@ export default function App() {
     screen = <TripScreen trip={demoTrip} demo onBack={() => setPreview(false)} />;
   } else if (!session) {
     screen = <NeedLinkScreen onPreview={() => setPreview(true)} error={openError} />;
-  } else if (!entered) {
-    screen = <LandingScreen dates={landingDates} onEnter={() => setEntered(true)} />;
+  } else if (view === 'welcome') {
+    screen = <LandingScreen dates={landingDates} onEnter={() => setView('plan')} onTasks={() => setView('tasks')} />;
+  } else if (view === 'tasks') {
+    screen = <TasksScreen tripId={landingTripId} onBack={() => setView('welcome')} />;
   } else if (trip) {
     screen = <TripScreen trip={trip} onBack={() => setTrip(null)} />;
   } else {
