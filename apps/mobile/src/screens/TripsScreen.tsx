@@ -8,6 +8,7 @@ import { formatDayHeading, parseDmy, toDmy } from '../lib/format';
 import { errorMessage } from '../lib/errors';
 import { PlaceBanner } from '../components/PlaceBanner';
 import { DateField } from '../components/DateField';
+import { landing } from '../landing';
 
 type Props = { onOpenTrip: (trip: Trip) => void };
 
@@ -113,7 +114,7 @@ export function TripsScreen({ onOpenTrip }: Props) {
       const { data, error: insertError } = await supabase
         .from('trips')
         .insert({
-          name: name.trim() || 'Our holiday',
+          name: name.trim() || `${landing.family} ${landing.headline}`,
           destination: destination.trim() || null,
           start_date: start,
           end_date: end,
