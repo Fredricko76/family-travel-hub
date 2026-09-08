@@ -1,30 +1,45 @@
 import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
-import { placeImage } from '../lib/placeImages';
+import { placeImage, type PlacePhoto } from '../lib/placeImages';
 
 type Props = { place: string | null; hint?: string | null; height?: number; caption?: string | null };
 
 /** A photo of a place with its name over the bottom edge. Shows nothing if no photo is found. */
 export function PlaceBanner({ place, hint, height = 150, caption }: Props) {
-  const [url, setUrl] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PlacePhoto | null>(null);
+  const [useSmall, setUseSmall] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setUrl(null);
+    setPhoto(null);
+    setUseSmall(false);
+    setFailed(false);
     if (!place) return;
-    placeImage(place, hint).then((u) => {
-      if (!cancelled) setUrl(u);
+    placeImage(place, hint).then((p) => {
+      if (!cancelled) setPhoto(p);
     });
     return () => {
       cancelled = true;
     };
   }, [place, hint]);
 
-  if (!place || !url) return null;
+  if (!place || !photo || failed) return null;
+  const uri = useSmall ? photo.small : photo.big;
   return (
     <View style={[styles.wrap, { height }]}>
-      <Image source={{ uri: url }} style={styles.image} resizeMode="cover" accessibilityLabel={place} />
+      <Image
+        source={{ uri }}
+        style={styles.image}
+        resizeMode="cover"
+        accessibilityLabel={place}
+        onError={() => {
+          // The big size can be missing for some photos; drop to the small one, then give up.
+          if (!useSmall && photo.small !== photo.big) setUseSmall(true);
+          else setFailed(true);
+        }}
+      />
       <View style={styles.shade} />
       <View style={styles.label}>
         <Text style={styles.place}>{place}</Text>

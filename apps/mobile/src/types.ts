@@ -88,6 +88,8 @@ export type ItineraryItem = {
   lat?: number | null;
   lng?: number | null;
   geocode_query?: string | null;
+  /** Client-only: a hotel shown on a day it covers, as that day's starting point. */
+  base?: boolean;
 };
 
 export type TripDocument = {

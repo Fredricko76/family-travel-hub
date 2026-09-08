@@ -251,8 +251,38 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         return a.sort_order - b.sort_order;
       });
     }
+    // A hotel covers every night of the stay. On each day after check-in, up to
+    // and including check-out day, show it first as that day's starting point,
+    // so distances run from the hotel to the first thing you do.
+    const localDate = (iso: string, tz: string | null) => {
+      try {
+        return utcToLocalParts(iso, tz ?? 'UTC').date;
+      } catch {
+        return iso.slice(0, 10);
+      }
+    };
+    for (const stay of items) {
+      if (stay.kind !== 'stay' || !stay.starts_at || !stay.ends_at) continue;
+      const from = localDate(stay.starts_at, stay.starts_tz);
+      const to = localDate(stay.ends_at, stay.ends_tz ?? stay.starts_tz);
+      for (const day of days) {
+        if (day.day_date <= from || day.day_date > to) continue;
+        const isCheckout = day.day_date === to;
+        const base: ItineraryItem = {
+          ...stay,
+          id: `base-${stay.id}-${day.id}`,
+          day_id: day.id,
+          title: stay.title,
+          starts_at: null,
+          notes: isCheckout ? `Check out ${formatTime(stay.ends_at, stay.ends_tz ?? stay.starts_tz)}` : null,
+          base: true,
+          document_id: null,
+        };
+        map.set(day.id, [base, ...(map.get(day.id) ?? [])]);
+      }
+    }
     return map;
-  }, [items]);
+  }, [items, days]);
 
   async function uploadAndExtract() {
     if (working) return; // ignore a second tap while the first is in flight
@@ -484,7 +514,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         const day = selectedDay;
         const dayItems = itemsByDay.get(day.id) ?? [];
         const isToday = day.id === todayDay?.id;
-        const progress = progressOf(dayItems, checkIns);
+        const progress = progressOf(dayItems.filter((i) => !i.base), checkIns);
         return (
           <View style={styles.day}>
             <View style={styles.dayNav}>
@@ -528,6 +558,23 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                       <Text style={styles.legText}>↓ {describeLeg(leg)}</Text>
                     </View>
                   )}
+                  {item.base ? (
+                    <View style={[styles.item, styles.baseRow]}>
+                      <View style={styles.baseMark}>
+                        <Text style={styles.baseMarkText}>⌂</Text>
+                      </View>
+                      <View style={styles.flex}>
+                        <View style={styles.itemTitleRow}>
+                          <Text style={styles.itemTitle}>{item.title}</Text>
+                          <Chip text="Your base today" tone="accent" />
+                        </View>
+                        <Text style={styles.itemMeta}>
+                          Staying here{item.location ? ` · ${item.location}` : ''}
+                        </Text>
+                        {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
+                      </View>
+                    </View>
+                  ) : (
                   <View style={styles.item}>
                     <Pressable
                       onPress={() => toggleCheckIn(item)}
@@ -540,7 +587,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                       {done && <Text style={styles.checkMark}>✓</Text>}
                     </Pressable>
                     <Text style={[styles.itemTime, done && styles.textDone]}>
-                      {item.starts_at ? formatTime(item.starts_at, item.starts_tz) : '—'}
+                      {item.starts_at && formatTime(item.starts_at, item.starts_tz) !== '00:00' ? formatTime(item.starts_at, item.starts_tz) : '—'}
                     </Text>
                     <View style={styles.flex}>
                       <View style={styles.itemTitleRow}>
@@ -573,6 +620,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                       </View>
                     )}
                   </View>
+                  )}
                   </React.Fragment>
                 );
               })
@@ -771,10 +819,10 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   container: { padding: spacing.lg, paddingTop: 64, paddingBottom: 64, gap: spacing.md },
   link: { color: colors.accent, fontWeight: '600' },
-  eyebrow: { color: colors.accent, fontWeight: '700', letterSpacing: 2, fontSize: 12 },
-  title: { fontSize: 30, fontWeight: '700', color: colors.ink, letterSpacing: -0.5 },
-  meta: { color: colors.ink2 },
-  section: { fontSize: 20, fontWeight: '700', color: colors.ink, marginTop: spacing.lg },
+  eyebrow: { color: colors.done, fontWeight: '700', letterSpacing: 2, fontSize: 12 },
+  title: { fontSize: 30, fontWeight: '800', color: colors.accent, letterSpacing: -0.5 },
+  meta: { color: colors.done, fontWeight: '600' },
+  section: { fontSize: 20, fontWeight: '700', color: colors.accent, marginTop: spacing.lg },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   topProgress: { color: colors.ink2, fontSize: 13, fontVariant: ['tabular-nums'] },
   tabBar: {
@@ -794,10 +842,10 @@ const styles = StyleSheet.create({
   stripWrap: { marginHorizontal: -spacing.lg },
   strip: { paddingHorizontal: spacing.lg, gap: 6 },
   dayChip: { width: 54, paddingVertical: 8, borderRadius: 12, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, gap: 1 },
-  dayChipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
-  dayChipToday: { borderColor: colors.ink, borderWidth: 2 },
-  dayChipWeekday: { fontSize: 11, color: colors.ink3, fontWeight: '600' },
-  dayChipNumber: { fontSize: 18, color: colors.ink, fontWeight: '700' },
+  dayChipOn: { backgroundColor: colors.done, borderColor: colors.done },
+  dayChipToday: { borderColor: colors.accent, borderWidth: 2 },
+  dayChipWeekday: { fontSize: 11, color: colors.done, fontWeight: '700' },
+  dayChipNumber: { fontSize: 18, color: colors.accent, fontWeight: '800' },
   dayChipMonth: { fontSize: 10, color: colors.ink3 },
   dayChipTextOn: { color: '#fff' },
   dayChipDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'transparent', marginTop: 2 },
@@ -827,11 +875,11 @@ const styles = StyleSheet.create({
   itemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   doneLine: { color: colors.done, fontSize: 12, marginTop: 2, fontWeight: '600' },
   nextCard: { backgroundColor: colors.accentSoft, borderRadius: 12, padding: spacing.md, gap: 2 },
-  nextLabel: { color: colors.accent, fontWeight: '700', letterSpacing: 2, fontSize: 11 },
+  nextLabel: { color: colors.done, fontWeight: '700', letterSpacing: 2, fontSize: 11 },
   nextTitle: { color: colors.ink, fontWeight: '700', fontSize: 16 },
   nextMeta: { color: colors.ink2, fontSize: 13 },
-  dayHeading: { fontWeight: '700', color: colors.ink, fontSize: 15 },
-  dayPlace: { fontWeight: '600', color: colors.accent },
+  dayHeading: { fontWeight: '800', color: colors.done, fontSize: 17 },
+  dayPlace: { fontWeight: '700', color: colors.accent, fontSize: 15 },
   itemActions: { alignItems: 'flex-end', gap: 6, paddingTop: 2 },
   dayEmpty: { color: colors.ink3, fontSize: 13 },
   item: { flexDirection: 'row', gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
@@ -839,6 +887,9 @@ const styles = StyleSheet.create({
   itemTitle: { fontWeight: '600', color: colors.ink, fontSize: 15 },
   itemMeta: { color: colors.ink2, fontSize: 12 },
   itemTimes: { color: colors.ink, fontSize: 13, fontWeight: '600', marginTop: 2 },
+  baseRow: { backgroundColor: colors.accentSoft, marginHorizontal: -spacing.md, paddingHorizontal: spacing.md, paddingBottom: spacing.sm, borderTopWidth: 0, borderRadius: 8 },
+  baseMark: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  baseMarkText: { color: '#fff', fontSize: 14, lineHeight: 16, fontWeight: '700' },
   leg: { paddingLeft: 32, paddingTop: 6 },
   legText: { color: colors.ink3, fontSize: 12, fontStyle: 'italic' },
   itemNotes: { color: colors.ink3, fontSize: 12, marginTop: 2 },

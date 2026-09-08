@@ -24,7 +24,7 @@ export function AuthCard({ title, subtitle, children, footer }: Props) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: '#161616' },
+  backdrop: { flex: 1, backgroundColor: '#0B1F4D' },
   scroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, paddingVertical: 40 },
   card: {
     width: '100%',
