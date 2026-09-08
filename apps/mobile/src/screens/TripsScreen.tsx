@@ -7,6 +7,7 @@ import type { Trip } from '../types';
 import { formatDayHeading, parseDmy, toDmy } from '../lib/format';
 import { errorMessage } from '../lib/errors';
 import { PlaceBanner } from '../components/PlaceBanner';
+import { DateField } from '../components/DateField';
 
 type Props = { onOpenTrip: (trip: Trip) => void };
 
@@ -167,10 +168,10 @@ export function TripsScreen({ onOpenTrip }: Props) {
           <Text style={styles.hint}>Dates are optional. Leave them blank and the first itinerary you upload will set them.</Text>
           <View style={styles.row}>
             <View style={styles.flex}>
-              <Field label="Start (day/month/year)" value={startDate} onChangeText={setStartDate} placeholder="12/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+              <DateField label="Start (optional)" value={startDate} onChange={setStartDate} />
             </View>
             <View style={styles.flex}>
-              <Field label="End (day/month/year)" value={endDate} onChangeText={setEndDate} placeholder="19/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+              <DateField label="End (optional)" value={endDate} onChange={setEndDate} min={parseDmy(startDate)} />
             </View>
           </View>
           <Button title="Create trip" onPress={createTrip} loading={creating} />

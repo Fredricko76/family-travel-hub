@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Field, Notice } from './ui';
+import { DateField } from './DateField';
 import { colors, spacing } from '../theme';
 import type { ItemKind } from '../types';
 import type { ItemInput } from '../lib/items';
@@ -10,6 +11,8 @@ const KINDS: ItemKind[] = ['activity', 'meal', 'stay', 'flight', 'transport', 'n
 
 type Props = {
   initial: ItemInput;
+  /** Trip range (YYYY-MM-DD): the calendar greys out days outside it. */
+  range?: { min: string; max: string };
   title: string;
   saving: boolean;
   onSave: (input: ItemInput) => Promise<void> | void;
@@ -17,7 +20,7 @@ type Props = {
 };
 
 /** Inline form for adding or editing one itinerary item. */
-export function ItemEditor({ initial, title, saving, onSave, onCancel }: Props) {
+export function ItemEditor({ initial, title, saving, onSave, onCancel, range }: Props) {
   const [form, setForm] = useState<ItemInput>(initial);
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<ItemInput>) => setForm((prev) => ({ ...prev, ...patch }));
@@ -50,27 +53,21 @@ export function ItemEditor({ initial, title, saving, onSave, onCancel }: Props) 
       </View>
 
       <Field label="What" value={form.title} onChangeText={(t) => set({ title: t })} placeholder="Lunch at Locavore" autoFocus />
+      <DateField label="Day" value={form.date} onChange={(t) => set({ date: t })} min={range?.min} max={range?.max} />
       <View style={styles.row}>
-        <View style={styles.flex}>
-          <Field label="Day (day/month/year)" value={form.date} onChangeText={(t) => set({ date: t })} placeholder="14/10/2026" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
-        </View>
         <View style={styles.flex}>
           <Field label="Time (24h, optional)" value={form.time} onChangeText={(t) => set({ time: t })} placeholder="12:30" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
         </View>
+        <View style={styles.flex}>
+          <Field label="Time zone" value={form.tz} onChangeText={(t) => set({ tz: t })} autoCapitalize="none" autoCorrect={false} placeholder="Asia/Makassar" />
+        </View>
       </View>
-      <Field label="Time zone" value={form.tz} onChangeText={(t) => set({ tz: t })} autoCapitalize="none" autoCorrect={false} placeholder="Asia/Makassar" />
 
       <Text style={styles.subheading}>
         {form.kind === 'flight' || form.kind === 'transport' ? 'Arrival (optional)' : form.kind === 'stay' ? 'Check-out (optional)' : 'Ends (optional)'}
       </Text>
-      <View style={styles.row}>
-        <View style={styles.flex}>
-          <Field label="Time (24h)" value={form.endTime} onChangeText={(t) => set({ endTime: t })} placeholder="13:25" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
-        </View>
-        <View style={styles.flex}>
-          <Field label="Day, if different" value={form.endDate} onChangeText={(t) => set({ endDate: t })} placeholder="Same day" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
-        </View>
-      </View>
+      <Field label="Time (24h)" value={form.endTime} onChangeText={(t) => set({ endTime: t })} placeholder="13:25" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+      <DateField label="Day, if different" value={form.endDate} onChange={(t) => set({ endDate: t })} placeholder="Same day" min={range?.min} max={range?.max} />
       <Field
         label={form.kind === 'flight' || form.kind === 'transport' ? 'Arrival time zone, if different' : 'Time zone, if different'}
         value={form.endTz}

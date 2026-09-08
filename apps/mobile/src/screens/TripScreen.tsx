@@ -14,6 +14,7 @@ import { GalleryTab } from '../components/GalleryTab';
 import { PlaceBanner } from '../components/PlaceBanner';
 import { geocodeMissing, legBetween, legParts, type Leg } from '../lib/geo';
 import { cruiseDayFor, isCruise } from '../lib/cruise';
+import { TripEditor } from '../components/TripEditor';
 import type { CheckIn } from '../types';
 import { checkIn, listCheckIns, progressOf, todayInTrip, undoCheckIn, upNext } from '../lib/checkins';
 import { deviceZone } from '../lib/time';
@@ -40,6 +41,7 @@ const STATUS_LABEL: Record<TripDocument['status'], { text: string; tone: 'neutra
 export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const [trip, setTrip] = useState<Trip>(initialTrip);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingTrip, setEditingTrip] = useState(false);
   const [days, setDays] = useState<ItineraryDay[]>(demo ? demoDays : []);
   const [items, setItems] = useState<ItineraryItem[]>(demo ? demoItems : []);
   const [documents, setDocuments] = useState<TripDocument[]>(demo ? demoDocuments : []);
@@ -639,6 +641,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
             {editor?.dayId === day.id ? (
               <ItemEditor
                 key={editor.item?.id ?? 'new'}
+                range={{ min: trip.start_date, max: trip.end_date }}
                 title={editor.item ? 'Edit item' : `Add to ${formatDayHeading(day.day_date)}`}
                 initial={editor.initial}
                 saving={savingItem}
@@ -671,11 +674,29 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
           )}
         </View>
         {demo && <Notice text="Sample data. Nothing here is saved. Sign in to plan a real trip." tone="accent" />}
-        <Text style={styles.title}>{trip.name}</Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, styles.flex]}>{trip.name}</Text>
+          <Pressable onPress={() => setEditingTrip((v) => !v)} accessibilityRole="button" hitSlop={8}>
+            <Text style={styles.link}>{editingTrip ? 'Close' : 'Edit'}</Text>
+          </Pressable>
+        </View>
         <Text style={styles.meta}>
           {trip.destination ? `${trip.destination} · ` : ''}
           {toDmy(trip.start_date)} to {toDmy(trip.end_date)} · {days.length} days
         </Text>
+        {editingTrip && (
+          <TripEditor
+            trip={trip}
+            demo={demo}
+            onCancel={() => setEditingTrip(false)}
+            onSaved={(saved) => {
+              setTrip(saved);
+              setEditingTrip(false);
+              setNotice('Trip updated.');
+              load();
+            }}
+          />
+        )}
 
         {error && <Notice text={error} tone="danger" />}
         {notice && <Notice text={notice} tone="accent" />}
@@ -835,6 +856,7 @@ const styles = StyleSheet.create({
   meta: { color: colors.done, fontWeight: '600' },
   section: { fontSize: 20, fontWeight: '700', color: colors.accent, marginTop: spacing.lg },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   topProgress: { color: colors.ink2, fontSize: 13, fontVariant: ['tabular-nums'] },
   tabBar: {
     flexDirection: 'row',
