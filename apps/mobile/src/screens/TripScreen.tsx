@@ -11,14 +11,12 @@ import { ItemEditor } from '../components/ItemEditor';
 import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
 import { utcToLocalParts } from '../lib/time';
 import { GalleryTab } from '../components/GalleryTab';
-import { PeopleTab } from '../components/PeopleTab';
-import { myRole } from '../lib/people';
-import { isAdminRole, type CheckIn, type TripRole } from '../types';
+import type { CheckIn } from '../types';
 import { checkIn, listCheckIns, progressOf, todayInTrip, undoCheckIn, upNext } from '../lib/checkins';
 import { deviceZone } from '../lib/time';
 import { demoCheckIns } from '../demo';
 
-type Tab = 'plan' | 'gallery' | 'people';
+type Tab = 'plan' | 'gallery';
 import { formatDayHeading, formatTime, KIND_LABEL, shortZone, toDmy } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
@@ -53,22 +51,18 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
   const [editor, setEditor] = useState<{ dayId: string; item: ItineraryItem | null; initial: ItemInput } | null>(null);
   const [savingItem, setSavingItem] = useState(false);
   const [tab, setTab] = useState<Tab>('plan');
-  const [role, setRole] = useState<TripRole | null>(demo ? 'owner' : null);
   const [myUserId, setMyUserId] = useState<string | null>(demo ? 'demo-user' : null);
-  const canEdit = isAdminRole(role);
+  const canEdit = true; // no roles: everyone on the trip can edit
 
   useEffect(() => {
     if (demo) return;
     let cancelled = false;
     (async () => {
       try {
-        const [r, auth] = await Promise.all([myRole(trip), supabase.auth.getUser()]);
-        if (!cancelled) {
-          setRole(r);
-          setMyUserId(auth.data.user?.id ?? null);
-        }
+        const auth = await supabase.auth.getUser();
+        if (!cancelled) setMyUserId(auth.data.user?.id ?? null);
       } catch (err) {
-        if (!cancelled) setError(errorMessage(err, 'Could not check your role on this trip.'));
+        if (!cancelled) setError(errorMessage(err, 'Could not check who you are.'));
       }
     })();
     return () => {
@@ -557,7 +551,6 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         {notice && <Notice text={notice} tone="accent" />}
 
         {tab === 'gallery' && <GalleryTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
-        {tab === 'people' && <PeopleTab trip={trip} demo={demo} canEdit={canEdit} myUserId={myUserId} />}
 
         {tab === 'plan' && (
           <>
@@ -663,7 +656,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
               </View>
             )}
 
-            {role === 'owner' && (
+            {(
               <View style={styles.dangerZone}>
                 <Button
                   title="Delete this trip"
@@ -684,7 +677,6 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
           [
             ['plan', 'Plan'],
             ['gallery', 'Gallery'],
-            ['people', 'People'],
           ] as const
         ).map(([key, label]) => (
           <Pressable
