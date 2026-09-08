@@ -85,6 +85,9 @@ export type ItineraryItem = {
   notes: string | null;
   sort_order: number;
   document_id: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geocode_query?: string | null;
 };
 
 export type TripDocument = {

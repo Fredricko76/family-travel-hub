@@ -9,6 +9,9 @@ export type ItemInput = {
   date: string; // as typed: day/month/year (2026-10-12 also accepted)
   time: string; // HH:MM or '' for no set time
   tz: string; // IANA zone the item is displayed in
+  endDate: string; // optional: day/month/year the item ends, if not the same day
+  endTime: string; // optional: HH:MM it ends or arrives
+  endTz: string; // optional: zone of the end, if different (arrival city)
   location: string;
   notes: string;
 };
@@ -25,6 +28,24 @@ export function buildItemRow(trip: Trip, days: ItineraryDay[], input: ItemInput)
   if (time && !TIME_RE.test(time)) throw new Error('Time must be 24-hour, like 09:30 or 18:00.');
   const tz = input.tz.trim() || deviceZone();
   if (!isValidZone(tz)) throw new Error(`"${tz}" is not a known time zone. Try Australia/Melbourne or Asia/Makassar.`);
+
+  // Optional end / arrival: its own day and zone, defaulting to the start's.
+  const endTime = input.endTime.trim();
+  const endDateText = input.endDate.trim();
+  const endTz = input.endTz.trim() || tz;
+  let ends_at: string | null = null;
+  let ends_tz: string | null = null;
+  if (endTime || endDateText) {
+    const endIso = endDateText ? parseDmy(endDateText) : isoDate;
+    if (!endIso) throw new Error('End day must be day/month/year, like 15/10/2026.');
+    if (endTime && !TIME_RE.test(endTime)) throw new Error('End time must be 24-hour, like 11:00.');
+    if (!isValidZone(endTz)) throw new Error(`"${endTz}" is not a known time zone.`);
+    ends_at = localToUtcIso(endIso, endTime || '00:00', endTz);
+    ends_tz = endTz;
+    const startsAt = time ? localToUtcIso(isoDate, time, tz) : null;
+    if (startsAt && ends_at < startsAt) throw new Error('It ends before it starts. Check the end day, time and zone.');
+  }
+
   return {
     trip_id: trip.id,
     day_id: day.id,
@@ -32,6 +53,8 @@ export function buildItemRow(trip: Trip, days: ItineraryDay[], input: ItemInput)
     title,
     starts_at: time ? localToUtcIso(isoDate, time, tz) : null,
     starts_tz: tz,
+    ends_at,
+    ends_tz,
     location: input.location.trim() || null,
     notes: input.notes.trim() || null,
   };

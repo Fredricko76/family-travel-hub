@@ -59,6 +59,26 @@ export function ItemEditor({ initial, title, saving, onSave, onCancel }: Props) 
         </View>
       </View>
       <Field label="Time zone" value={form.tz} onChangeText={(t) => set({ tz: t })} autoCapitalize="none" autoCorrect={false} placeholder="Asia/Makassar" />
+
+      <Text style={styles.subheading}>
+        {form.kind === 'flight' || form.kind === 'transport' ? 'Arrival (optional)' : form.kind === 'stay' ? 'Check-out (optional)' : 'Ends (optional)'}
+      </Text>
+      <View style={styles.row}>
+        <View style={styles.flex}>
+          <Field label="Time (24h)" value={form.endTime} onChangeText={(t) => set({ endTime: t })} placeholder="13:25" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+        </View>
+        <View style={styles.flex}>
+          <Field label="Day, if different" value={form.endDate} onChangeText={(t) => set({ endDate: t })} placeholder="Same day" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+        </View>
+      </View>
+      <Field
+        label={form.kind === 'flight' || form.kind === 'transport' ? 'Arrival time zone, if different' : 'Time zone, if different'}
+        value={form.endTz}
+        onChangeText={(t) => set({ endTz: t })}
+        autoCapitalize="none"
+        autoCorrect={false}
+        placeholder="Same as above"
+      />
       <Field label="Where (optional)" value={form.location} onChangeText={(t) => set({ location: t })} placeholder="Ubud centre" />
       <Field label="Notes (optional)" value={form.notes} onChangeText={(t) => set({ notes: t })} placeholder="Booking ref, pickup point, what to bring" multiline />
 
@@ -83,6 +103,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   heading: { fontWeight: '700', color: colors.ink, fontSize: 15 },
+  subheading: { fontWeight: '600', color: colors.ink2, fontSize: 13, marginTop: spacing.xs },
   kinds: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kind: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.surface2 },
   kindOn: { backgroundColor: colors.accent },

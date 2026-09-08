@@ -6,6 +6,7 @@ import { colors, spacing } from '../theme';
 import type { Trip } from '../types';
 import { formatDayHeading, parseDmy, toDmy } from '../lib/format';
 import { errorMessage } from '../lib/errors';
+import { PlaceBanner } from '../components/PlaceBanner';
 
 type Props = { onOpenTrip: (trip: Trip) => void };
 
@@ -16,6 +17,7 @@ function isoDate(d: Date) {
 export function TripsScreen({ onOpenTrip }: Props) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [progress, setProgress] = useState<Map<string, { done: number; total: number }>>(new Map());
+  const [firstPlace, setFirstPlace] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -37,10 +39,16 @@ export function TripsScreen({ onOpenTrip }: Props) {
     if (loadError) setError(loadError.message);
     else setTrips((data ?? []) as Trip[]);
     // Progress per trip: items vs items with at least one check-in.
-    const [itemsRes, checksRes] = await Promise.all([
+    const [itemsRes, checksRes, daysRes] = await Promise.all([
       supabase.from('itinerary_items').select('id, trip_id'),
       supabase.from('check_ins').select('item_id, trip_id'),
+      supabase.from('itinerary_days').select('trip_id, day_date, headline').not('headline', 'is', null).order('day_date'),
     ]);
+    const places = new Map<string, string>();
+    for (const row of (daysRes.data ?? []) as { trip_id: string; headline: string | null }[]) {
+      if (row.headline && !places.has(row.trip_id)) places.set(row.trip_id, row.headline);
+    }
+    setFirstPlace(places);
     const map = new Map<string, { done: number; total: number }>();
     for (const row of (itemsRes.data ?? []) as { id: string; trip_id: string }[]) {
       const p = map.get(row.trip_id) ?? { done: 0, total: 0 };
@@ -197,6 +205,7 @@ export function TripsScreen({ onOpenTrip }: Props) {
               onPress={() => onOpenTrip(item)}
               accessibilityRole="button"
             >
+              <PlaceBanner place={firstPlace.get(item.id) ?? null} hint={item.destination} height={120} />
               <View style={styles.cardHead}>
                 <Text style={[styles.cardTitle, styles.flex]} numberOfLines={2}>{item.name}</Text>
                 <Chip text={status.text} tone={status.tone} />

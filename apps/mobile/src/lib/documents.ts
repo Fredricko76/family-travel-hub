@@ -271,6 +271,8 @@ export async function acceptItems(
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
 
+  sequenceArrivals(rows);
+
   if (rows.length > 0) {
     const { error } = await supabase.from('itinerary_items').insert(rows);
     if (error) throw error;
@@ -285,6 +287,63 @@ export async function acceptItems(
   currentTrip = await fillDestination(currentTrip, currentDays);
 
   return { trip: currentTrip, days: currentDays, extendedTo, clamped };
+}
+
+const TRANSFER_AFTER_ARRIVAL_MIN = 30;
+const CHECK_IN_AFTER_TRANSFER_MIN = 45;
+
+type SequencedRow = {
+  day_id: string;
+  kind: string;
+  city?: string | null;
+  starts_at: string | null;
+  starts_tz: string | null;
+  ends_at: string | null;
+  ends_tz: string | null;
+};
+
+const sameCity = (a?: string | null, b?: string | null) =>
+  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+function isMidnightIn(iso: string, tz: string | null): boolean {
+  try {
+    const t = new Intl.DateTimeFormat('en-GB', { timeZone: tz ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+    return t === '00:00';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Documents often give transfers and hotel check-ins a date but no time.
+ * For each flight arrival, the untimed transfer in the same city is put
+ * 30 minutes after landing, and an untimed check-in in that city 45 minutes
+ * after the transfer, so the day reads depart, arrive, transfer, check in.
+ * Transfers and stays in other cities are left alone rather than guessed.
+ */
+export function sequenceArrivals<T extends SequencedRow>(rows: T[]): T[] {
+  const byDay = new Map<string, T[]>();
+  for (const r of rows) byDay.set(r.day_id, [...(byDay.get(r.day_id) ?? []), r]);
+  const untimed = (r: SequencedRow) => !r.starts_at || isMidnightIn(r.starts_at, r.starts_tz);
+  for (const list of byDay.values()) {
+    const flights = list.filter((r) => r.kind === 'flight' && r.ends_at);
+    for (const flight of flights) {
+      const landed: number = Date.parse(flight.ends_at!);
+      const tz: string | null = flight.ends_tz;
+      const transfer = list.find((r) => r.kind === 'transport' && untimed(r) && sameCity(r.city, flight.city));
+      if (!transfer) continue;
+      const transferAt: number = landed + TRANSFER_AFTER_ARRIVAL_MIN * 60000;
+      transfer.starts_at = new Date(transferAt).toISOString();
+      transfer.starts_tz = transfer.starts_tz ?? tz;
+      const stay = list.find((r) => r.kind === 'stay' && untimed(r) && sameCity(r.city, flight.city));
+      if (stay) {
+        const checkInAt: number = transferAt + CHECK_IN_AFTER_TRANSFER_MIN * 60000;
+        stay.starts_at = new Date(checkInAt).toISOString();
+        stay.starts_tz = stay.starts_tz ?? tz;
+      }
+    }
+  }
+  return rows;
 }
 
 /**

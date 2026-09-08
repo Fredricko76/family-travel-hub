@@ -78,6 +78,55 @@ export function shortZone(tz: string | null): string {
   return city.replace(/_/g, ' ');
 }
 
+/**
+ * One line describing when an item starts and ends, each in its own zone:
+ *   flight     "Departs 12:45 Melbourne · Arrives 08:10 Los Angeles"
+ *   stay       "Check in 15:00 · Check out Sat 12 Dec 2026 11:00"
+ *   anything   "10:00 to 12:30 Bali"
+ * The end's date is shown only when it differs from the day the item sits on.
+ */
+export function describeTimes(
+  item: { kind: string; starts_at: string | null; starts_tz: string | null; ends_at: string | null; ends_tz: string | null },
+  dayDate: string,
+): string {
+  const startTz = item.starts_tz ?? 'UTC';
+  const endTz = item.ends_tz ?? startTz;
+  // A document that gives a date but no time is stored as midnight; show the day, not "00:00".
+  const clock = (t: string | null) => (t === '00:00' ? null : t);
+  const start = item.starts_at ? clock(formatTime(item.starts_at, startTz)) : null;
+  const end = item.ends_at ? clock(formatTime(item.ends_at, endTz)) : null;
+  const endDate = item.ends_at ? localDateInZone(item.ends_at, endTz) : null;
+  const endDay = endDate && endDate !== dayDate ? formatDayHeading(endDate) : '';
+  const endText = [endDay, end].filter(Boolean).join(' ');
+  const zoneChanges = item.ends_tz && item.starts_tz && item.ends_tz !== item.starts_tz;
+
+  if (item.kind === 'flight' || item.kind === 'transport') {
+    const parts: string[] = [];
+    if (start) parts.push(`Departs ${start} ${shortZone(startTz)}`);
+    if (endText) parts.push(`Arrives ${endText} ${shortZone(endTz)}`);
+    return parts.join(' · ');
+  }
+  if (item.kind === 'stay') {
+    const parts: string[] = [];
+    if (start) parts.push(`Check in ${start}`);
+    if (endText) parts.push(`Check out ${endText}`);
+    return parts.length ? `${parts.join(' · ')} ${shortZone(startTz)}` : '';
+  }
+  if (start && endText) return `${start} to ${endText} ${zoneChanges ? shortZone(endTz) : shortZone(startTz)}`;
+  if (start) return `${start} ${shortZone(startTz)} time`;
+  if (endText) return `Until ${endText} ${shortZone(endTz)}`;
+  return '';
+}
+
+function localDateInZone(iso: string, tz: string): string {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    return dtf.format(new Date(iso)); // en-CA gives YYYY-MM-DD
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 export const KIND_LABEL: Record<string, string> = {
   flight: 'Flight',
   stay: 'Stay',

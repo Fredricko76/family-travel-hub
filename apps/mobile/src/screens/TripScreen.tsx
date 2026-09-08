@@ -11,13 +11,15 @@ import { ItemEditor } from '../components/ItemEditor';
 import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
 import { utcToLocalParts } from '../lib/time';
 import { GalleryTab } from '../components/GalleryTab';
+import { PlaceBanner } from '../components/PlaceBanner';
+import { describeLeg, geocodeMissing, legBetween, type Leg } from '../lib/geo';
 import type { CheckIn } from '../types';
 import { checkIn, listCheckIns, progressOf, todayInTrip, undoCheckIn, upNext } from '../lib/checkins';
 import { deviceZone } from '../lib/time';
 import { demoCheckIns } from '../demo';
 
 type Tab = 'plan' | 'gallery';
-import { formatDayHeading, formatTime, KIND_LABEL, shortZone, toDmy } from '../lib/format';
+import { describeTimes, formatDayHeading, formatTime, KIND_LABEL, toDmy } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
 
@@ -106,6 +108,24 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
     };
   }, [trip.id, load, demo]);
 
+  // Find where each item is (once), so distances between neighbours can be shown.
+  const geocoding = React.useRef(false);
+  useEffect(() => {
+    if (demo || geocoding.current) return;
+    const pending = items.filter((i) => i.lat == null && i.geocode_query == null && i.kind !== 'flight' && (i.location || i.city));
+    if (pending.length === 0) return;
+    geocoding.current = true;
+    geocodeMissing(pending)
+      .then((changed) => {
+        if (changed.length === 0) return;
+        const byId = new Map(changed.map((c) => [c.id, c]));
+        setItems((prev) => prev.map((i) => byId.get(i.id) ?? i));
+      })
+      .finally(() => {
+        geocoding.current = false;
+      });
+  }, [items, demo]);
+
   // Today, in the zone the trip is currently in, and what is coming up next.
   const todayDate = useMemo(() => todayInTrip(days, items, deviceZone()), [days, items]);
   const todayDay = useMemo(() => days.find((d) => d.day_date === todayDate) ?? null, [days, todayDate]);
@@ -130,6 +150,29 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       setEditor(null);
     }
   }
+
+  // Road distance and time between each item on the day and the next one.
+  const [legs, setLegs] = useState<Map<string, Leg | null>>(new Map());
+  useEffect(() => {
+    const dayItems = selectedDay ? (itemsByDay.get(selectedDay.id) ?? []) : [];
+    let cancelled = false;
+    (async () => {
+      for (let i = 1; i < dayItems.length; i += 1) {
+        const a = dayItems[i - 1];
+        const b = dayItems[i];
+        const key = `${a.id}>${b.id}`;
+        if (legs.has(key)) continue;
+        if (a.kind === 'flight' || b.kind === 'flight' || a.lat == null || a.lng == null || b.lat == null || b.lng == null) continue;
+        const leg = await legBetween({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
+        if (cancelled) return;
+        setLegs((prev) => new Map(prev).set(key, leg));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDay?.id, items]);
 
   // Keep the selected day visible in the date strip.
   useEffect(() => {
@@ -188,12 +231,23 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
       list.push(item);
       map.set(item.day_id, list);
     }
-    // Timed items in start order, untimed items after them in their manual order.
+    // Timed items in start order, then items with a date but no time (stored as
+    // midnight), then untimed ones, each group in manual order.
+    const key = (i: ItineraryItem): string | null => {
+      if (!i.starts_at) return null;
+      try {
+        return utcToLocalParts(i.starts_at, i.starts_tz ?? 'UTC').time === '00:00' ? null : i.starts_at;
+      } catch {
+        return i.starts_at;
+      }
+    };
     for (const list of map.values()) {
       list.sort((a, b) => {
-        if (a.starts_at && b.starts_at) return a.starts_at.localeCompare(b.starts_at);
-        if (a.starts_at) return -1;
-        if (b.starts_at) return 1;
+        const ka = key(a);
+        const kb = key(b);
+        if (ka && kb) return ka.localeCompare(kb);
+        if (ka) return -1;
+        if (kb) return 1;
         return a.sort_order - b.sort_order;
       });
     }
@@ -319,7 +373,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
     setEditor({
       dayId: day.id,
       item: null,
-      initial: { kind: 'activity', title: '', date: toDmy(day.day_date), time: '', tz: inferZone(day, days, items), location: '', notes: '' },
+      initial: { kind: 'activity', title: '', date: toDmy(day.day_date), time: '', tz: inferZone(day, days, items), endDate: '', endTime: '', endTz: '', location: '', notes: '' },
     });
   }
 
@@ -328,6 +382,8 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
     const day = days.find((d) => d.id === item.day_id);
     const tz = item.starts_tz ?? inferZone(day ?? days[0], days, items);
     const parts = item.starts_at ? utcToLocalParts(item.starts_at, tz) : null;
+    const endTz = item.ends_tz ?? tz;
+    const endParts = item.ends_at ? utcToLocalParts(item.ends_at, endTz) : null;
     setEditor({
       dayId: item.day_id,
       item,
@@ -337,6 +393,9 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         date: toDmy(parts?.date ?? day?.day_date ?? trip.start_date),
         time: parts?.time ?? '',
         tz,
+        endDate: endParts && endParts.date !== parts?.date ? toDmy(endParts.date) : '',
+        endTime: endParts?.time ?? '',
+        endTz: item.ends_tz && item.ends_tz !== tz ? item.ends_tz : '',
         location: item.location ?? '',
         notes: item.notes ?? '',
       },
@@ -443,6 +502,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                 <Text style={styles.navText}>›</Text>
               </Pressable>
             </View>
+            <PlaceBanner place={day.headline} hint={trip.destination} caption={formatDayHeading(day.day_date)} />
             {progress.total > 0 && (
               <View style={styles.progressRow}>
                 <View style={styles.progressTrack}>
@@ -456,11 +516,19 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
             {dayItems.length === 0 && editor?.dayId !== day.id ? (
               <Text style={styles.dayEmpty}>Nothing planned for this day</Text>
             ) : (
-              dayItems.map((item) => {
+              dayItems.map((item, index) => {
                 const done = checkInByItem.get(item.id) ?? null;
                 const isNext = nextItem?.id === item.id;
+                const prev = index > 0 ? dayItems[index - 1] : null;
+                const leg = prev ? legs.get(`${prev.id}>${item.id}`) ?? null : null;
                 return (
-                  <View key={item.id} style={styles.item}>
+                  <React.Fragment key={item.id}>
+                  {leg && (
+                    <View style={styles.leg}>
+                      <Text style={styles.legText}>↓ {describeLeg(leg)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.item}>
                     <Pressable
                       onPress={() => toggleCheckIn(item)}
                       accessibilityRole="checkbox"
@@ -479,9 +547,11 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                         <Text style={[styles.itemTitle, done && styles.textDone]}>{item.title}</Text>
                         {isNext && !done && <Chip text="Up next" tone="accent" />}
                       </View>
+                      {describeTimes(item, day.day_date) ? (
+                        <Text style={styles.itemTimes}>{describeTimes(item, day.day_date)}</Text>
+                      ) : null}
                       <Text style={styles.itemMeta}>
                         {KIND_LABEL[item.kind]}
-                        {item.starts_tz ? ` · ${shortZone(item.starts_tz)} time` : ''}
                         {item.location ? ` · ${item.location}` : ''}
                       </Text>
                       {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
@@ -503,6 +573,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                       </View>
                     )}
                   </View>
+                  </React.Fragment>
                 );
               })
             )}
@@ -559,7 +630,7 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
                 <Text style={styles.nextLabel}>UP NEXT</Text>
                 <Text style={styles.nextTitle}>{nextItem.title}</Text>
                 <Text style={styles.nextMeta}>
-                  {nextItem.starts_at ? `${formatTime(nextItem.starts_at, nextItem.starts_tz)} ${shortZone(nextItem.starts_tz)} time` : 'Today, no set time'}
+                  {describeTimes(nextItem, days.find((d) => d.id === nextItem.day_id)?.day_date ?? todayDate) || 'Today, no set time'}
                   {nextItem.location ? ` · ${nextItem.location}` : ''}
                 </Text>
               </Pressable>
@@ -767,6 +838,9 @@ const styles = StyleSheet.create({
   itemTime: { width: 48, color: colors.ink2, fontVariant: ['tabular-nums'], fontSize: 13, paddingTop: 2 },
   itemTitle: { fontWeight: '600', color: colors.ink, fontSize: 15 },
   itemMeta: { color: colors.ink2, fontSize: 12 },
+  itemTimes: { color: colors.ink, fontSize: 13, fontWeight: '600', marginTop: 2 },
+  leg: { paddingLeft: 32, paddingTop: 6 },
+  legText: { color: colors.ink3, fontSize: 12, fontStyle: 'italic' },
   itemNotes: { color: colors.ink3, fontSize: 12, marginTop: 2 },
   doc: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.line, padding: spacing.md },
   docName: { color: colors.ink, fontWeight: '600' },
