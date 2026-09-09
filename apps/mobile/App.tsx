@@ -18,7 +18,7 @@ export default function App() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [preview, setPreview] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
-  const [view, setView] = useState<'welcome' | 'plan' | 'tasks'>('welcome');
+  const [view, setView] = useState<'welcome' | 'plan' | 'tasks' | 'trips'>('welcome');
   const [landingDates, setLandingDates] = useState<string | null>(null);
   // The trip the welcome page is about; its task list opens from there too.
   const [landingTripId, setLandingTripId] = useState<string | null>(null);
@@ -77,9 +77,21 @@ export default function App() {
   } else if (view === 'tasks') {
     screen = <TasksScreen tripId={landingTripId} onBack={() => setView('welcome')} />;
   } else if (trip) {
-    screen = <TripScreen trip={trip} onBack={() => setTrip(null)} />;
+    screen = (
+      <TripScreen
+        trip={trip}
+        onBack={() => {
+          setTrip(null);
+          setView('welcome');
+        }}
+        onAllTrips={() => {
+          setTrip(null);
+          setView('trips');
+        }}
+      />
+    );
   } else {
-    screen = <TripsScreen onOpenTrip={setTrip} />;
+    screen = <TripsScreen onOpenTrip={setTrip} onBack={() => setView('welcome')} autoOpen={view !== 'trips'} />;
   }
 
   return (

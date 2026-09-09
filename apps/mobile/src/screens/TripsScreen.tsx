@@ -10,13 +10,19 @@ import { PlaceBanner } from '../components/PlaceBanner';
 import { DateField } from '../components/DateField';
 import { landing } from '../landing';
 
-type Props = { onOpenTrip: (trip: Trip) => void };
+type Props = {
+  onOpenTrip: (trip: Trip) => void;
+  /** Back to the welcome page. */
+  onBack?: () => void;
+  /** Jump straight into the trip that's on now (or the only one). Off when the list was asked for on purpose. */
+  autoOpen?: boolean;
+};
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export function TripsScreen({ onOpenTrip }: Props) {
+export function TripsScreen({ onOpenTrip, onBack, autoOpen = true }: Props) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [progress, setProgress] = useState<Map<string, { done: number; total: number }>>(new Map());
   const [firstPlace, setFirstPlace] = useState<Map<string, string>>(new Map());
@@ -83,7 +89,7 @@ export function TripsScreen({ onOpenTrip }: Props) {
   // or the only trip there is. Admins keep the full dashboard.
   const autoOpened = React.useRef(false);
   useEffect(() => {
-    if (autoOpened.current || loading || trips.length === 0) return;
+    if (!autoOpen || autoOpened.current || loading || trips.length === 0) return;
     const onNow = trips.find((t) => statusOf(t).text === 'On now');
     const target = onNow ?? (trips.length === 1 ? trips[0] : null);
     if (target) {
@@ -152,6 +158,11 @@ export function TripsScreen({ onOpenTrip }: Props) {
 
   return (
     <View style={styles.container}>
+      {onBack && (
+        <Pressable onPress={onBack} accessibilityRole="button" hitSlop={8} style={styles.backRow}>
+          <Text style={styles.backLink}>‹ Welcome page</Text>
+        </Pressable>
+      )}
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>DASHBOARD</Text>
@@ -236,6 +247,8 @@ const styles = StyleSheet.create({
   eyebrow: { color: colors.done, fontWeight: '700', letterSpacing: 2, fontSize: 12 },
   title: { fontSize: 30, fontWeight: '800', color: colors.accent, letterSpacing: -0.5 },
   link: { color: colors.accent, fontWeight: '600', paddingBottom: 6 },
+  backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
+  backLink: { color: colors.accent, fontWeight: '600' },
   form: { gap: spacing.md, backgroundColor: colors.surface, padding: spacing.lg, borderRadius: 12, borderWidth: 1, borderColor: colors.line },
   row: { flexDirection: 'row', gap: spacing.md },
   hint: { color: colors.ink3, fontSize: 12 },

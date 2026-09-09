@@ -25,7 +25,7 @@ import { describeTimes, formatDayHeading, formatTime, KIND_LABEL, toDmy } from '
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
 
-type Props = { trip: Trip; onBack: () => void; demo?: boolean };
+type Props = { trip: Trip; onBack: () => void; onAllTrips?: () => void; demo?: boolean };
 
 type Review = { document: TripDocument; extraction: Extraction };
 
@@ -38,7 +38,7 @@ const STATUS_LABEL: Record<TripDocument['status'], { text: string; tone: 'neutra
   failed: { text: 'Failed', tone: 'danger' },
 };
 
-export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
+export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false }: Props) {
   const [trip, setTrip] = useState<Trip>(initialTrip);
   const [notice, setNotice] = useState<string | null>(null);
   const [editingTrip, setEditingTrip] = useState(false);
@@ -664,9 +664,16 @@ export function TripScreen({ trip: initialTrip, onBack, demo = false }: Props) {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
       >
         <View style={styles.topRow}>
-          <Pressable onPress={onBack} accessibilityRole="button" hitSlop={8}>
-            <Text style={styles.link}>{demo ? '‹ Back to sign in' : '‹ All trips'}</Text>
-          </Pressable>
+          <View style={styles.topLinks}>
+            <Pressable onPress={onBack} accessibilityRole="button" hitSlop={8}>
+              <Text style={styles.link}>{demo ? '‹ Back' : '‹ Welcome page'}</Text>
+            </Pressable>
+            {onAllTrips && (
+              <Pressable onPress={onAllTrips} accessibilityRole="button" hitSlop={8}>
+                <Text style={styles.linkQuiet}>All trips</Text>
+              </Pressable>
+            )}
+          </View>
           {tripProgress.total > 0 && (
             <Text style={styles.topProgress}>
               {tripProgress.done} of {tripProgress.total} done
@@ -851,6 +858,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   container: { padding: spacing.lg, paddingTop: 64, paddingBottom: 64, gap: spacing.md },
   link: { color: colors.accent, fontWeight: '600' },
+  topLinks: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  linkQuiet: { color: colors.ink2, fontWeight: '600' },
   eyebrow: { color: colors.done, fontWeight: '700', letterSpacing: 2, fontSize: 12 },
   title: { fontSize: 30, fontWeight: '800', color: colors.accent, letterSpacing: -0.5 },
   meta: { color: colors.done, fontWeight: '600' },
