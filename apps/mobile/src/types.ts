@@ -80,6 +80,8 @@ export type ItineraryDay = {
   trip_id: string;
   day_date: string;
   headline: string | null;
+  /** The family's own photo for the day, a path in the photos bucket. */
+  banner_path?: string | null;
 };
 
 export type ItineraryItem = {

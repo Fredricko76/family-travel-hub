@@ -11,7 +11,7 @@ import { ItemEditor } from '../components/ItemEditor';
 import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
 import { utcToLocalParts } from '../lib/time';
 import { GalleryTab } from '../components/GalleryTab';
-import { PlaceBanner } from '../components/PlaceBanner';
+import { DayBanner } from '../components/DayBanner';
 import { geocodeMissing, geocodeQueryFor, legBetween, legParts, type Leg } from '../lib/geo';
 import { cruiseDayFor, isCruise } from '../lib/cruise';
 import { TripEditor } from '../components/TripEditor';
@@ -641,15 +641,16 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
                 <Text style={styles.navText}>›</Text>
               </Pressable>
             </View>
-            {cruise ? (
-              <PlaceBanner
-                place={cruise.shipName}
-                caption={cruise.boarding ? 'Boarding today' : cruise.leaving ? 'Disembark today' : 'Your ship'}
-                second={{ place: cruise.port ?? 'At sea', hint: trip.destination, caption: cruise.port ? 'Port call' : 'A day at sea' }}
-              />
-            ) : (
-              <PlaceBanner place={day.headline} hint={trip.destination} caption={formatDayHeading(day.day_date)} />
-            )}
+            <DayBanner
+              trip={trip}
+              day={day}
+              title={cruise ? `${cruise.shipName}${cruise.port ? ` · ${cruise.port}` : ' · At sea'}` : day.headline}
+              caption={cruise && cruise.boarding ? `${formatDayHeading(day.day_date)} · Boarding today` : cruise && cruise.leaving ? `${formatDayHeading(day.day_date)} · Disembark today` : formatDayHeading(day.day_date)}
+              canEdit={canEdit}
+              demo={demo}
+              onChanged={(saved) => setDays((prev) => prev.map((d) => (d.id === saved.id ? saved : d)))}
+              onError={setError}
+            />
             {progress.total > 0 && (
               <View style={styles.progressRow}>
                 <View style={styles.progressTrack}>
