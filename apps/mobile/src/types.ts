@@ -61,7 +61,8 @@ export type DocumentStatus =
   | 'ready_for_review'
   | 'accepted'
   | 'declined'
-  | 'failed';
+  | 'failed'
+  | 'kept'; // uploaded to keep for reference, not read into the itinerary
 
 export type ItemKind = 'flight' | 'stay' | 'transport' | 'activity' | 'meal' | 'note';
 

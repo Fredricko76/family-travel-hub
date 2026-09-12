@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { supabase } from './supabase';
 import type { ExtractedItem, ExtractResponse, ItineraryDay, Trip, TripDocument } from '../types';
 
@@ -75,7 +75,11 @@ function pickFileWeb(): Promise<PickedFile | null> {
  * Let the user pick a PDF or image, upload it under the trip, and record it.
  * Returns null if the picker was cancelled.
  */
-export async function pickAndUploadDocument(trip: Trip): Promise<TripDocument | null> {
+/**
+ * Pick a file and upload it. By default it is queued to be read into the
+ * itinerary; with keepOnly it is simply kept for reference (tickets, visas).
+ */
+export async function pickAndUploadDocument(trip: Trip, options: { keepOnly?: boolean } = {}): Promise<TripDocument | null> {
   const picked = Platform.OS === 'web' ? await pickFileWeb() : await pickFileNative();
   if (!picked) return null;
 
@@ -120,12 +124,30 @@ export async function pickAndUploadDocument(trip: Trip): Promise<TripDocument | 
   // 3. Point the row at the file.
   const { data: updated, error: updateError } = await supabase
     .from('documents')
-    .update({ storage_path: storagePath, status: 'queued' })
+    .update({ storage_path: storagePath, status: options.keepOnly ? 'kept' : 'queued' })
     .eq('id', doc.id)
     .select()
     .single();
   if (updateError || !updated) throw updateError ?? new Error('Could not update the document.');
   return updated as TripDocument;
+}
+
+/** Open an uploaded document in the browser (web) or the system viewer (native). */
+export async function openDocument(doc: TripDocument): Promise<void> {
+  if (!doc.storage_path) throw new Error('This document has no file yet.');
+  // On the web the tab must be opened in the tap itself or the browser blocks it,
+  // so open it first and point it at the file once the link is ready.
+  const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
+  const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.storage_path, 60 * 60);
+  if (error || !data?.signedUrl) {
+    tab?.close();
+    throw error ?? new Error('Could not open the document.');
+  }
+  if (tab) {
+    tab.location.href = data.signedUrl;
+    return;
+  }
+  await Linking.openURL(data.signedUrl);
 }
 
 /** Ask the Edge Function to read the document with Claude. */

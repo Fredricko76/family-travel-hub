@@ -5,7 +5,7 @@ import { Button, Chip, Notice } from '../components/ui';
 import { ReviewCard } from '../components/ReviewCard';
 import { colors, spacing } from '../theme';
 import type { ExtractedItem, Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from '../types';
-import { acceptItems, declineDocument, deleteItem, deleteTrip, extractDocument, pickAndUploadDocument, deleteDocument } from '../lib/documents';
+import { acceptItems, declineDocument, deleteDocument, deleteItem, deleteTrip, extractDocument, openDocument, pickAndUploadDocument } from '../lib/documents';
 import { confirm } from '../lib/confirm';
 import { ItemEditor } from '../components/ItemEditor';
 import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
@@ -36,6 +36,7 @@ const STATUS_LABEL: Record<TripDocument['status'], { text: string; tone: 'neutra
   accepted: { text: 'Added', tone: 'done' },
   declined: { text: 'Discarded', tone: 'neutral' },
   failed: { text: 'Failed', tone: 'danger' },
+  kept: { text: 'Kept', tone: 'neutral' },
 };
 
 export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false }: Props) {
@@ -355,6 +356,40 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
     } finally {
       setWorking(null);
       await load();
+    }
+  }
+
+  /** Upload a file to keep with the trip without reading it into the itinerary. */
+  async function uploadToKeep() {
+    if (working) return;
+    setError(null);
+    setNotice(null);
+    if (demo) {
+      setNotice('Sample data: nothing is uploaded.');
+      return;
+    }
+    setWorking('upload');
+    try {
+      const doc = await pickAndUploadDocument(trip, { keepOnly: true });
+      if (doc) setNotice(`Kept "${doc.original_name ?? 'document'}" with the trip. Tap View to open it any time.`);
+    } catch (err) {
+      setError(errorMessage(err, 'Upload failed.'));
+    } finally {
+      setWorking(null);
+      await load();
+    }
+  }
+
+  async function viewDocument(doc: TripDocument) {
+    setError(null);
+    if (demo) {
+      setNotice('Sample data: there is no file to open.');
+      return;
+    }
+    try {
+      await openDocument(doc);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not open the document.'));
     }
   }
 
@@ -830,11 +865,20 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
                   onDecline={decline}
                 />
               ) : (
-                <Button
-                  title={working === 'upload' ? 'Uploading…' : working === 'extract' ? 'Reading the document…' : 'Upload travel plans'}
-                  onPress={uploadAndExtract}
-                  loading={working === 'upload' || working === 'extract'}
-                />
+                <View style={styles.uploadRow}>
+                  <View style={styles.flex}>
+                    <Button
+                      title={working === 'upload' ? 'Uploading…' : working === 'extract' ? 'Reading the document…' : 'Upload travel plans'}
+                      onPress={uploadAndExtract}
+                      loading={working === 'upload' || working === 'extract'}
+                    />
+                    <Text style={styles.uploadHint}>Read and added to the days</Text>
+                  </View>
+                  <View style={styles.flex}>
+                    <Button title="Upload a document" variant="secondary" onPress={uploadToKeep} disabled={working !== null} />
+                    <Text style={styles.uploadHint}>Kept to look at, like tickets or visas</Text>
+                  </View>
+                </View>
               ))}
 
             {days.length > 0 && (
@@ -877,7 +921,7 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
 
             {canEdit && (
               <View style={styles.docsSection}>
-                <Text style={styles.section}>Uploaded plans</Text>
+                <Text style={styles.section}>Uploaded plans and documents</Text>
                 {documents.length === 0 && <Text style={styles.dayEmpty}>No documents uploaded yet</Text>}
                 {documents.map((doc) => {
                   const status = STATUS_LABEL[doc.status];
@@ -888,14 +932,19 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
                         {doc.error_message ? <Text style={styles.docError}>{doc.error_message}</Text> : null}
                       </View>
                       <Chip text={status.text} tone={status.tone} />
+                      {doc.storage_path && (
+                        <Pressable onPress={() => viewDocument(doc)} accessibilityRole="button" accessibilityLabel={`View ${doc.original_name ?? 'document'}`} hitSlop={8}>
+                          <Text style={styles.link}>View</Text>
+                        </Pressable>
+                      )}
                       {doc.status === 'ready_for_review' && !review && (
                         <Pressable onPress={() => reopenReview(doc)} accessibilityRole="button">
                           <Text style={styles.link}>Review</Text>
                         </Pressable>
                       )}
-                      {(doc.status === 'failed' || doc.status === 'queued') && !review && working === null && (
+                      {(doc.status === 'failed' || doc.status === 'queued' || doc.status === 'kept') && !review && working === null && (
                         <Pressable onPress={() => retryExtraction(doc)} accessibilityRole="button">
-                          <Text style={styles.link}>Retry</Text>
+                          <Text style={styles.link}>{doc.status === 'kept' ? 'Read into itinerary' : 'Retry'}</Text>
                         </Pressable>
                       )}
                       {canEdit && !review && (
@@ -1042,6 +1091,8 @@ const styles = StyleSheet.create({
   doc: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.line, padding: spacing.md },
   docName: { color: colors.ink, fontWeight: '600' },
   docError: { color: colors.danger, fontSize: 12 },
+  uploadRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
+  uploadHint: { color: colors.ink3, fontSize: 11, textAlign: 'center', marginTop: 4 },
   docDelete: { color: colors.danger, fontWeight: '600' },
   docDeleteOff: { opacity: 0.5 },
   remove: { color: colors.ink3, fontSize: 12, paddingTop: 2 },
