@@ -12,8 +12,37 @@ const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 
 /** The text worth looking up for an item, or null if there is nothing to go on. */
+/** Airports the family is likely to pass through, by IATA code. */
+const AIRPORTS: Record<string, { lat: number; lng: number }> = {
+  MCO: { lat: 28.4312, lng: -81.3081 }, // Orlando
+  TPA: { lat: 27.9755, lng: -82.5332 }, // Tampa
+  MIA: { lat: 25.7959, lng: -80.287 }, // Miami
+  FLL: { lat: 26.0742, lng: -80.1506 }, // Fort Lauderdale
+  EWR: { lat: 40.6895, lng: -74.1745 }, // Newark
+  JFK: { lat: 40.6413, lng: -73.7781 }, // New York JFK
+  LGA: { lat: 40.7769, lng: -73.874 }, // New York LaGuardia
+  LAX: { lat: 33.9416, lng: -118.4085 }, // Los Angeles
+  SFO: { lat: 37.6213, lng: -122.379 }, // San Francisco
+  DEN: { lat: 39.8561, lng: -104.6737 }, // Denver
+  MEL: { lat: -37.669, lng: 144.841 }, // Melbourne
+  SYD: { lat: -33.9399, lng: 151.1753 }, // Sydney
+};
+
+/** The airport code in a place name like "Orlando International Airport (MCO)", if it is one we know. */
+function knownAirport(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const inBrackets = text.match(/(([A-Z]{3}))/)?.[1];
+  const code = inBrackets ?? text.match(/(MCO|TPA|MIA|FLL|EWR|JFK|LGA|LAX|SFO|DEN|MEL|SYD)/)?.[1];
+  return code && AIRPORTS[code] ? code : null;
+}
+
 export function geocodeQueryFor(item: Pick<ItineraryItem, 'kind' | 'title' | 'location' | 'city'>): string | null {
   if (item.kind === 'flight') return null; // a flight spans two cities; skip
+  // An airport is looked up by its code alone. Adding the destination city, as
+  // for other places, drags the search into town and the leg comes out tiny.
+  const airport = knownAirport(item.location) ?? (item.location ? null : knownAirport(item.title));
+  if (airport) return `airport:${airport}`;
+  if (item.location && /airport/i.test(item.location)) return item.location.replace(/s*([A-Z]{3})/, '').trim();
   const parts = [item.location?.trim(), item.city?.trim()].filter((p): p is string => !!p);
   if (parts.length === 0 && item.kind === 'stay') parts.push(item.title.trim());
   if (parts.length === 0) return null;
@@ -46,7 +75,7 @@ export async function geocodeMissing(items: ItineraryItem[]): Promise<ItineraryI
     if (item.geocode_query === query && item.lat == null) continue; // looked up before, nothing found
     let found: { lat: number; lng: number } | null = null;
     try {
-      found = await nominatim(query);
+      found = query.startsWith('airport:') ? AIRPORTS[query.slice('airport:'.length)] ?? null : await nominatim(query);
       if (!found && item.city && query !== item.city) {
         await sleep(1100);
         found = await nominatim(item.city);

@@ -12,7 +12,7 @@ import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from 
 import { utcToLocalParts } from '../lib/time';
 import { GalleryTab } from '../components/GalleryTab';
 import { PlaceBanner } from '../components/PlaceBanner';
-import { geocodeMissing, legBetween, legParts, type Leg } from '../lib/geo';
+import { geocodeMissing, geocodeQueryFor, legBetween, legParts, type Leg } from '../lib/geo';
 import { cruiseDayFor, isCruise } from '../lib/cruise';
 import { TripEditor } from '../components/TripEditor';
 import type { CheckIn } from '../types';
@@ -21,7 +21,7 @@ import { deviceZone } from '../lib/time';
 import { demoCheckIns } from '../demo';
 
 type Tab = 'plan' | 'gallery';
-import { describeTimes, formatDayHeading, formatTime, KIND_LABEL, toDmy } from '../lib/format';
+import { describeTimes, formatDayHeading, formatTime, KIND_LABEL, shortZone, toDmy } from '../lib/format';
 import { demoDays, demoDocuments, demoExtraction, demoItems } from '../demo';
 import { errorMessage } from '../lib/errors';
 
@@ -115,7 +115,11 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
   const geocoding = React.useRef(false);
   useEffect(() => {
     if (demo || geocoding.current) return;
-    const pending = items.filter((i) => i.lat == null && i.geocode_query == null && i.kind !== 'flight' && (i.location || i.city));
+    // Anything never looked up, or whose place changed since it was.
+    const pending = items.filter((i) => {
+      const q = geocodeQueryFor(i);
+      return !!q && i.geocode_query !== q;
+    });
     if (pending.length === 0) return;
     geocoding.current = true;
     geocodeMissing(pending)
@@ -166,6 +170,8 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
         const key = `${a.id}>${b.id}`;
         if (legs.has(key)) continue;
         if (a.kind === 'flight' || b.kind === 'flight' || a.lat == null || a.lng == null || b.lat == null || b.lng == null) continue;
+        // On a changeover day the morning starts at the old hotel, not the new base.
+        if (a.base && dayItems.some((x) => x.checkout)) continue;
         const leg = await legBetween({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
         if (cancelled) return;
         setLegs((prev) => new Map(prev).set(key, leg));
@@ -244,6 +250,42 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
         return i.starts_at;
       }
     };
+    const localDate = (iso: string, tz: string | null) => {
+      try {
+        return utcToLocalParts(iso, tz ?? 'UTC').date;
+      } catch {
+        return iso.slice(0, 10);
+      }
+    };
+    type Stay = { stay: ItineraryItem; from: string; to: string };
+    const stays: Stay[] = [];
+    for (const stay of items) {
+      if (!(stay.kind === 'stay' || isCruise(stay)) || !stay.starts_at || !stay.ends_at) continue;
+      stays.push({ stay, from: localDate(stay.starts_at, stay.starts_tz), to: localDate(stay.ends_at, stay.ends_tz ?? stay.starts_tz) });
+    }
+    // Checking out is its own entry on the day it happens. With a time it sits
+    // in order; without one it goes first, since check-out is a morning thing.
+    const morningCheckouts = new Map<string, ItineraryItem[]>();
+    for (const s of stays) {
+      if (s.to <= s.from) continue;
+      const day = days.find((d) => d.day_date === s.to);
+      if (!day) continue;
+      const row: ItineraryItem = {
+        ...s.stay,
+        id: `checkout-${s.stay.id}-${day.id}`,
+        day_id: day.id,
+        title: `Check out of ${s.stay.title}`,
+        starts_at: s.stay.ends_at,
+        starts_tz: s.stay.ends_tz ?? s.stay.starts_tz,
+        ends_at: null,
+        ends_tz: null,
+        notes: null,
+        document_id: null,
+        checkout: true,
+      };
+      if (key(row)) map.set(day.id, [...(map.get(day.id) ?? []), row]);
+      else morningCheckouts.set(day.id, [...(morningCheckouts.get(day.id) ?? []), row]);
+    }
     for (const list of map.values()) {
       list.sort((a, b) => {
         const ka = key(a);
@@ -254,35 +296,39 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
         return a.sort_order - b.sort_order;
       });
     }
+    for (const [dayId, rows] of morningCheckouts) map.set(dayId, [...rows, ...(map.get(dayId) ?? [])]);
     // A hotel covers every night of the stay. On each day after check-in, up to
     // and including check-out day, show it first as that day's starting point,
-    // so distances run from the hotel to the first thing you do.
-    const localDate = (iso: string, tz: string | null) => {
-      try {
-        return utcToLocalParts(iso, tz ?? 'UTC').date;
-      } catch {
-        return iso.slice(0, 10);
-      }
+    // so distances run from the hotel to the first thing you do. On a day you
+    // move from one place to the next, the new one is the base.
+    const at = (iso: string, tz: string | null) => {
+      const t = formatTime(iso, tz);
+      return t && t !== '00:00' ? ` ${t}` : '';
     };
-    for (const stay of items) {
-      if (!(stay.kind === 'stay' || isCruise(stay)) || !stay.starts_at || !stay.ends_at) continue;
-      const from = localDate(stay.starts_at, stay.starts_tz);
-      const to = localDate(stay.ends_at, stay.ends_tz ?? stay.starts_tz);
-      for (const day of days) {
-        if (day.day_date <= from || day.day_date > to) continue;
-        const isCheckout = day.day_date === to;
-        const base: ItineraryItem = {
-          ...stay,
-          id: `base-${stay.id}-${day.id}`,
-          day_id: day.id,
-          title: stay.title,
-          starts_at: null,
-          notes: isCheckout ? `Check out ${formatTime(stay.ends_at, stay.ends_tz ?? stay.starts_tz)}` : null,
-          base: true,
-          document_id: null,
-        };
-        map.set(day.id, [base, ...(map.get(day.id) ?? [])]);
+    const addBase = (stay: ItineraryItem, day: ItineraryDay, notes: string | null) => {
+      const base: ItineraryItem = {
+        ...stay,
+        id: `base-${stay.id}-${day.id}`,
+        day_id: day.id,
+        title: stay.title,
+        starts_at: null,
+        notes,
+        base: true,
+        document_id: null,
+      };
+      map.set(day.id, [base, ...(map.get(day.id) ?? [])]);
+    };
+    for (const day of days) {
+      const date = day.day_date;
+      const arriving = stays.find((s) => s.from === date && s.to > date);
+      const leaving = stays.filter((s) => s.to === date && s.from < date);
+      const staying = stays.filter((s) => s.from < date && s.to > date);
+      if (arriving && leaving.length > 0) {
+        const checkInAt = at(arriving.stay.starts_at!, arriving.stay.starts_tz);
+        addBase(arriving.stay, day, checkInAt ? `Check in${checkInAt}` : null);
+        continue;
       }
+      for (const s of [...leaving, ...staying]) addBase(s.stay, day, null);
     }
     return map;
   }, [items, days]);
@@ -517,7 +563,7 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
         const day = selectedDay;
         const dayItems = itemsByDay.get(day.id) ?? [];
         const isToday = day.id === todayDay?.id;
-        const progress = progressOf(dayItems.filter((i) => !i.base), checkIns);
+        const progress = progressOf(dayItems.filter((i) => !i.base && !i.checkout), checkIns);
         const cruise = cruiseDayFor(day, items);
         const placeToday = cruise ? (cruise.port ?? 'At sea') : day.headline;
         return (
@@ -571,7 +617,28 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
                       <Text style={styles.legText}>↓ {legParts(leg).distance} · <Text style={styles.legTime}>{legParts(leg).time}</Text>{legParts(leg).note}</Text>
                     </View>
                   )}
-                  {item.base ? (
+                  {item.checkout ? (
+                    <View style={styles.item}>
+                      <View style={styles.checkoutMark}>
+                        <Text style={styles.checkoutMarkText}>{'\u21E5'}</Text>
+                      </View>
+                      <Text style={styles.itemTime}>
+                        {item.starts_at && formatTime(item.starts_at, item.starts_tz) !== '00:00' ? formatTime(item.starts_at, item.starts_tz) : '—'}
+                      </Text>
+                      <View style={styles.flex}>
+                        <Text style={styles.itemTitle}>{item.title}</Text>
+                        <Text style={styles.itemTimes}>
+                          {item.starts_at && formatTime(item.starts_at, item.starts_tz) !== '00:00'
+                            ? `Check out ${formatTime(item.starts_at, item.starts_tz)} ${shortZone(item.starts_tz ?? 'UTC')}`
+                            : 'Check-out time not given'}
+                        </Text>
+                        <Text style={styles.itemMeta}>
+                          {KIND_LABEL[item.kind]}
+                          {item.location ? ` · ${item.location}` : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : item.base ? (
                     <View style={[styles.item, styles.baseRow]}>
                       <View style={styles.baseMark}>
                         <Text style={styles.baseMarkText}>⌂</Text>
@@ -911,6 +978,8 @@ const styles = StyleSheet.create({
   progressText: { color: colors.ink2, fontSize: 12, fontVariant: ['tabular-nums'] },
   check: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   checkOn: { backgroundColor: colors.done, borderColor: colors.done },
+  checkoutMark: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: colors.line, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  checkoutMarkText: { color: colors.ink3, fontSize: 12, lineHeight: 14 },
   checkMark: { color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 16 },
   itemDone: {},
   textDone: { color: colors.ink3, textDecorationLine: 'line-through' },

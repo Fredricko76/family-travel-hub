@@ -109,7 +109,8 @@ export function describeTimes(
   if (item.kind === 'stay') {
     const parts: string[] = [];
     if (start) parts.push(`Check in ${start}`);
-    if (endText) parts.push(`Check out ${endText}`);
+    // Check-out is listed on the day it happens, so only mention it here if that's today.
+    if (end && endDate === dayDate) parts.push(`Check out ${end}`);
     return parts.length ? `${parts.join(' · ')} ${shortZone(startTz)}` : '';
   }
   if (start && endText) return `${start} to ${endText} ${zoneChanges ? shortZone(endTz) : shortZone(startTz)}`;

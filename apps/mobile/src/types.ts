@@ -101,6 +101,8 @@ export type ItineraryItem = {
   geocode_query?: string | null;
   /** Client-only: a hotel shown on a day it covers, as that day's starting point. */
   base?: boolean;
+  /** Client-only: the check-out of a stay, shown on the day it happens. */
+  checkout?: boolean;
 };
 
 export type TripDocument = {
