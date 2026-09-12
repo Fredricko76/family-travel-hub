@@ -421,6 +421,22 @@ export async function deleteTrip(trip: Trip) {
   if (error) throw error;
 }
 
+/**
+ * Remove an uploaded plan, the file behind it, and every itinerary item it
+ * added. Returns how many items went with it.
+ */
+export async function deleteDocument(doc: TripDocument): Promise<number> {
+  const { data: removed, error: itemsError } = await supabase.from('itinerary_items').delete().eq('document_id', doc.id).select('id');
+  if (itemsError) throw itemsError;
+  if (doc.storage_path) {
+    const { error: removeError } = await supabase.storage.from('documents').remove([doc.storage_path]);
+    if (removeError) throw removeError;
+  }
+  const { error } = await supabase.from('documents').delete().eq('id', doc.id);
+  if (error) throw error;
+  return removed?.length ?? 0;
+}
+
 export async function declineDocument(documentId: string) {
   const { error } = await supabase.from('documents').update({ status: 'declined' }).eq('id', documentId);
   if (error) throw error;

@@ -5,7 +5,7 @@ import { Button, Chip, Notice } from '../components/ui';
 import { ReviewCard } from '../components/ReviewCard';
 import { colors, spacing } from '../theme';
 import type { ExtractedItem, Extraction, ItineraryDay, ItineraryItem, Trip, TripDocument } from '../types';
-import { acceptItems, declineDocument, deleteItem, deleteTrip, extractDocument, pickAndUploadDocument } from '../lib/documents';
+import { acceptItems, declineDocument, deleteItem, deleteTrip, extractDocument, pickAndUploadDocument, deleteDocument } from '../lib/documents';
 import { confirm } from '../lib/confirm';
 import { ItemEditor } from '../components/ItemEditor';
 import { buildItemRow, createItem, inferZone, updateItem, type ItemInput } from '../lib/items';
@@ -519,6 +519,29 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
     }
   }
 
+  const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
+  async function removeDocument(doc: TripDocument) {
+    const count = items.filter((i) => i.document_id === doc.id).length;
+    const what = count === 0 ? 'Nothing in the itinerary came from it.' : `The ${count} item${count === 1 ? '' : 's'} it added to the itinerary will go too.`;
+    const ok = await confirm('Delete this plan?', `"${doc.original_name ?? 'Document'}" will be removed. ${what} This cannot be undone.`);
+    if (!ok) return;
+    if (demo) {
+      setNotice('Sample data: nothing is deleted.');
+      return;
+    }
+    setDeletingDoc(doc.id);
+    setError(null);
+    try {
+      const removed = await deleteDocument(doc);
+      setNotice(removed === 0 ? 'Plan deleted.' : `Plan deleted along with ${removed} item${removed === 1 ? '' : 's'}.`);
+      await load();
+    } catch (err) {
+      setError(errorMessage(err, 'Could not delete the plan.'));
+    } finally {
+      setDeletingDoc(null);
+    }
+  }
+
   async function removeTrip() {
     const ok = await confirm(
       'Delete this trip?',
@@ -875,6 +898,17 @@ export function TripScreen({ trip: initialTrip, onBack, onAllTrips, demo = false
                           <Text style={styles.link}>Retry</Text>
                         </Pressable>
                       )}
+                      {canEdit && !review && (
+                        <Pressable
+                          onPress={() => removeDocument(doc)}
+                          disabled={deletingDoc !== null}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Delete ${doc.original_name ?? 'document'}`}
+                          hitSlop={8}
+                        >
+                          <Text style={[styles.docDelete, deletingDoc !== null && styles.docDeleteOff]}>{deletingDoc === doc.id ? 'Deleting…' : 'Delete'}</Text>
+                        </Pressable>
+                      )}
                     </View>
                   );
                 })}
@@ -1008,6 +1042,8 @@ const styles = StyleSheet.create({
   doc: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.line, padding: spacing.md },
   docName: { color: colors.ink, fontWeight: '600' },
   docError: { color: colors.danger, fontSize: 12 },
+  docDelete: { color: colors.danger, fontWeight: '600' },
+  docDeleteOff: { opacity: 0.5 },
   remove: { color: colors.ink3, fontSize: 12, paddingTop: 2 },
   dangerZone: { marginTop: spacing.xl, gap: spacing.sm },
   dangerHint: { color: colors.ink3, fontSize: 12, textAlign: 'center' },
