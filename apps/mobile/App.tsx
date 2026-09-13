@@ -22,6 +22,8 @@ export default function App() {
   const [landingDates, setLandingDates] = useState<string | null>(null);
   // The trip the welcome page is about; its task list opens from there too.
   const [landingTripId, setLandingTripId] = useState<string | null>(null);
+  // The moment the countdown runs to: the first flight, else the first day.
+  const [takeOff, setTakeOff] = useState<{ at: Date; label: string } | null>(null);
 
   // Dates for the welcome page: the trip that's on now, else the next one coming up.
   useEffect(() => {
@@ -34,6 +36,17 @@ export default function App() {
       if (pick) {
         setLandingDates(`${formatDayHeading(pick.start_date)} to ${formatDayHeading(pick.end_date)}`);
         setLandingTripId(pick.id);
+        const { data: flights } = await supabase
+          .from('itinerary_items')
+          .select('starts_at')
+          .eq('trip_id', pick.id)
+          .eq('kind', 'flight')
+          .not('starts_at', 'is', null)
+          .order('starts_at')
+          .limit(1);
+        const first = (flights ?? [])[0] as { starts_at: string } | undefined;
+        if (first) setTakeOff({ at: new Date(first.starts_at), label: 'Take-off in' });
+        else setTakeOff({ at: new Date(`${pick.start_date}T00:00:00`), label: 'The holiday starts in' });
       }
     })();
   }, [session]);
@@ -73,7 +86,7 @@ export default function App() {
   } else if (!session) {
     screen = <NeedLinkScreen onPreview={() => setPreview(true)} error={openError} />;
   } else if (view === 'welcome') {
-    screen = <LandingScreen dates={landingDates} onEnter={() => setView('plan')} onTasks={() => setView('tasks')} />;
+    screen = <LandingScreen dates={landingDates} takeOff={takeOff} onEnter={() => setView('plan')} onTasks={() => setView('tasks')} />;
   } else if (view === 'tasks') {
     screen = <TasksScreen tripId={landingTripId} onBack={() => setView('welcome')} />;
   } else if (trip) {

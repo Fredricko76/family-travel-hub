@@ -1,13 +1,15 @@
 import React from 'react';
 import { landing } from '../landing';
+import { plural, useCountdown } from '../lib/countdown';
 
-type Props = { dates: string | null; onEnter: () => void; onTasks: () => void };
+type Props = { dates: string | null; takeOff: { at: Date; label: string } | null; onEnter: () => void; onTasks: () => void };
 
 /**
  * Full-screen welcome page for the web build: an American skyline at sunset in
  * red, white, blue and gold, the family's name, and one button into the plan.
  */
-export function LandingScreen({ dates, onEnter, onTasks }: Props) {
+export function LandingScreen({ dates, takeOff, onEnter, onTasks }: Props) {
+  const left = useCountdown(takeOff?.at ?? null);
   return (
     <div style={styles.root} role="main">
       <svg viewBox="0 0 800 1200" preserveAspectRatio="xMidYMid slice" style={styles.scene} aria-hidden="true">
@@ -95,6 +97,29 @@ export function LandingScreen({ dates, onEnter, onTasks }: Props) {
         <h1 style={styles.headline}>{landing.headline}</h1>
         <p style={styles.destination}>{landing.destination}</p>
         {dates ? <p style={styles.dates}>{dates}</p> : null}
+        {left && takeOff ? (
+          left.passed ? (
+            <p style={styles.countLabel}>We're off!</p>
+          ) : (
+            <div style={styles.count} role="timer" aria-label={`${takeOff.label} ${left.months} months ${left.weeks} weeks ${left.days} days ${left.hours} hours ${left.minutes} minutes`}>
+              <p style={styles.countLabel}>{takeOff.label}</p>
+              <div style={styles.tiles}>
+                {[
+                  [left.months, plural(left.months, 'month')],
+                  [left.weeks, plural(left.weeks, 'week')],
+                  [left.days, plural(left.days, 'day')],
+                  [left.hours, plural(left.hours, 'hour')],
+                  [left.minutes, plural(left.minutes, 'minute')],
+                ].map(([n, unit]) => (
+                  <div key={String(unit)} style={styles.tile}>
+                    <span style={styles.tileNumber}>{n}</span>
+                    <span style={styles.tileUnit}>{unit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        ) : null}
         <p style={styles.tagline}>{landing.tagline}</p>
         <button type="button" onClick={onEnter} style={styles.button}>
           {landing.enter}
@@ -139,6 +164,23 @@ const styles: Record<string, React.CSSProperties> = {
     filter: 'drop-shadow(0 4px 14px rgba(0,0,0,0.5))',
   },
   dates: { margin: '14px 0 0', fontSize: 18, fontWeight: 600, color: '#fff' },
+  count: { marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: '100%', maxWidth: 380 },
+  countLabel: { margin: '12px 0 0', fontSize: 13, letterSpacing: 3, textTransform: 'uppercase', fontWeight: 700, color: '#FFE08A' },
+  tiles: { display: 'flex', gap: 4, width: '100%' },
+  tile: {
+    flex: 1,
+    minWidth: 0,
+    padding: '8px 2px',
+    borderRadius: 12,
+    background: 'rgba(11,31,77,0.55)',
+    border: '1px solid rgba(255,255,255,0.35)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textShadow: 'none',
+  },
+  tileNumber: { fontSize: 24, fontWeight: 800, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
+  tileUnit: { fontSize: 10, marginTop: 4, color: 'rgba(255,255,255,0.85)', fontWeight: 600, whiteSpace: 'nowrap' },
   tagline: { margin: '10px 0 0', fontSize: 16, color: 'rgba(255,255,255,0.85)', maxWidth: 360 },
   button: {
     marginTop: 34,
